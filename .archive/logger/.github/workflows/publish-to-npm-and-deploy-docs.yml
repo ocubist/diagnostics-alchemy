@@ -1,0 +1,172 @@
+name: Publish to npm and deploy documentation
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Fetch all history for accurate comparison
+
+      - name: Load environment variables
+        run: |
+          if [ -f .env.github ]; then
+            echo ".env.github file found and loaded"
+            export $(grep -v '^#' .env.github | xargs)
+            echo "GHPW_AUTO_PUBLISH_PROJECT=${GHPW_AUTO_PUBLISH_PROJECT}" >> $GITHUB_ENV
+            echo "GHPW_RUN_TESTS=${GHPW_RUN_TESTS}" >> $GITHUB_ENV
+            echo "GHPW_PUBLISH_DOCUMENTATION=${GHPW_PUBLISH_DOCUMENTATION}" >> $GITHUB_ENV
+            echo "GHPW_PUBLISH_TO_NPM=${GHPW_PUBLISH_TO_NPM}" >> $GITHUB_ENV
+            if [ "$GHPW_AUTO_PUBLISH_PROJECT" == "false" ]; then
+              echo "Skipping publishing because GHPW_AUTO_PUBLISH_PROJECT is set to false in .env.github"
+              exit 0
+            elif [ "$GHPW_AUTO_PUBLISH_PROJECT" == "true" ]; then
+              echo "Proceeding with publishing because GHPW_AUTO_PUBLISH_PROJECT is set to true in .env.github"
+            else
+              echo "GHPW_AUTO_PUBLISH_PROJECT in .env.github is not set, therefore the publishing will be aborted"
+              exit 1
+            fi
+          else
+            echo ".env.github file not found, therefore the publishing will be aborted"
+            exit 1
+          fi
+          if [ -z "$GHPW_RUN_TESTS" ]; then
+            echo "GHPW_RUN_TESTS is not set in .env.github"
+          elif [ "$GHPW_RUN_TESTS" == "true" ]; then
+            echo "GHPW_RUN_TESTS is set to true in .env.github"
+          else
+            echo "GHPW_RUN_TESTS is set to false in .env.github"
+          fi
+          if [ -z "$GHPW_PUBLISH_DOCUMENTATION" ]; then
+            echo "GHPW_PUBLISH_DOCUMENTATION is not set in .env.github"
+          elif [ "$GHPW_PUBLISH_DOCUMENTATION" == "true" ]; then
+            echo "GHPW_PUBLISH_DOCUMENTATION is set to true in .env.github"
+          else
+            echo "GHPW_PUBLISH_DOCUMENTATION is set to false in .env.github"
+          fi
+          if [ -z "$GHPW_PUBLISH_TO_NPM" ]; then
+            echo "GHPW_PUBLISH_TO_NPM is not set in .env.github"
+          elif [ "$GHPW_PUBLISH_TO_NPM" == "true" ]; then
+            echo "GHPW_PUBLISH_TO_NPM is set to true in .env.github"
+          else
+            echo "GHPW_PUBLISH_TO_NPM is set to false in .env.github"
+          fi
+
+      - name: Set up Node.js
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true'
+        uses: actions/setup-node@v3
+        with:
+          node-version: "16"
+          cache: "npm"
+
+      - name: Run Tests
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true' && env.GHPW_RUN_TESTS == 'true'
+        run: |
+          echo "Running tests..."
+          npm install
+          npm run test
+          git reset --hard
+
+      - name: Get previous version
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true'
+        id: prev-version
+        run: |
+          git checkout HEAD^
+          PREV_VERSION=$(jq -r '.version' package.json)
+          echo "PREV_VERSION=$PREV_VERSION" >> $GITHUB_ENV
+          echo "Previous version: v$PREV_VERSION"
+          git checkout -
+
+      - name: Get current version
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true'
+        id: curr-version
+        run: |
+          CURRENT_VERSION=$(jq -r '.version' package.json)
+          echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_ENV
+          echo "Current version: v$CURRENT_VERSION"
+
+      - name: Compare versions and bump if necessary
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true' && env.GHPW_PUBLISH_TO_NPM == 'true'
+        id: bump_version
+        env:
+          GH_REPO_TOKEN: ${{ secrets.GH_REPO_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.GH_REPO_TOKEN }}@github.com/${{ github.repository }}.git
+          echo "Current Version: $CURRENT_VERSION"
+          echo "Previous Version: $PREV_VERSION"
+
+          # Check if the version was manually changed
+          if [ "$CURRENT_VERSION" != "$PREV_VERSION" ]; then
+            echo "Version manually updated to $CURRENT_VERSION"
+          else
+            echo "Version not manually updated, bumping patch version"
+            npm version patch -m "Update to version %s (workflow)"
+            CURRENT_VERSION=$(jq -r '.version' package.json)
+            echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_ENV
+            git push https://x-access-token:${{ secrets.GH_REPO_TOKEN }}@github.com/${{ github.repository }}.git main --follow-tags
+          fi
+          echo "Version comparison and bump completed"
+
+      - name: Check if tag exists and add if necessary
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true' && env.GHPW_PUBLISH_TO_NPM == 'true'
+        run: |
+          git fetch --tags
+          TAG_VERSION="v${{ env.CURRENT_VERSION }}"
+          if git tag -l | grep -q "^$TAG_VERSION$"; then
+            echo "Tag $TAG_VERSION already exists"
+          else
+            git tag -a "$TAG_VERSION" -m "Release $TAG_VERSION"
+            git push https://x-access-token:${{ secrets.GH_REPO_TOKEN }}@github.com/${{ github.repository }}.git "$TAG_VERSION"
+            echo "Tag $TAG_VERSION added and pushed"
+          fi
+
+      - name: Install dependencies
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true' && (env.GHPW_PUBLISH_TO_NPM == 'true' || env.GHPW_PUBLISH_DOCUMENTATION == 'true')
+        run: npm install
+
+      - name: Publish to npm
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true' && env.GHPW_PUBLISH_TO_NPM == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+        run: |
+          echo "Building and publishing to npm..."
+          npm run build
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+          npm publish --access public
+
+      - name: Copy docs content to environment
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true' && env.GHPW_PUBLISH_DOCUMENTATION == 'true'
+        run: |
+          echo "Building documentation..."
+          npm run docs
+          mkdir -p /tmp/docs
+          cp -r docs/* /tmp/docs
+
+      - name: Deploy documentation to gh-pages-docs branch
+        if: env.GHPW_AUTO_PUBLISH_PROJECT == 'true' && env.GHPW_PUBLISH_DOCUMENTATION == 'true'
+        env:
+          GH_REPO_TOKEN: ${{ secrets.GH_REPO_TOKEN }}
+        run: |
+          echo "Deploying documentation..."
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.GH_REPO_TOKEN }}@github.com/${{ github.repository }}.git
+          git checkout gh-pages-docs || git checkout --orphan gh-pages-docs
+          git rm -rf .
+          cp -r /tmp/docs/* .
+          git add .
+          git commit -m "Update Documentation to v${{ env.CURRENT_VERSION }}"
+          git push https://x-access-token:${{ secrets.GH_REPO_TOKEN }}@github.com/${{ github.repository }}.git gh-pages-docs --force

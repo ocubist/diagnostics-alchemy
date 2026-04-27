@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    // # Base-Options
+    "esModuleInterop": true, // Enables interoperability between CommonJS and ES modules
+    "skipLibCheck": true, // Skips type checking for all declaration files (*.d.ts)
+    "target": "ES5", // Sets the target JavaScript version to ES5 for broad compatibility
+    "allowJs": true, // Allows JavaScript files to be compiled
+    "resolveJsonModule": true, // Enables importing JSON modules
+    "isolatedModules": true, // Ensures TypeScript modules are isolated
+    "rootDir": "./src", // Specifies the root directory of input files
+    "outDir": "./dist", // Redirects output structure to the specified directory
+    "sourceMap": true, // Generates source maps for debugging
+    "incremental": true, // Enable incremental compilation
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo", // Specify the location for tsbuildinfo file
+
+    // # Strictness
+    "strict": true, // Enables all strict type-checking options
+    "noUncheckedIndexedAccess": true, // Ensures every index access for an object or array is fully checked
+    "forceConsistentCasingInFileNames": true, // Ensures consistent casing in file names
+
+    // # Modules
+    "moduleResolution": "node", // Uses Node.js module resolution strategy
+    "module": "CommonJS", // Specifies module code generation
+
+    // # Output
+    "declaration": true, // Generates corresponding '.d.ts' file
+    "composite": true, // Enables composite projects
+    "declarationMap": true, // Generates corresponding '.d.ts.map' file
+
+    // # Lib
+    "lib": ["ESNext", "DOM", "DOM.Iterable"] // Specifies library files to be included in the compilation
+  },
+  "include": [
+    "src/**/*" // Include all files in the src directory
+  ],
+  "exclude": [
+    "src/tests",
+    "src/**/*.test.ts", // Exclude Test-Files inside src
+    "src/play",
+    "src/**/*.play.ts"
+  ]
+}

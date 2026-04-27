@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    // # Base-Options
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "target": "ESNext",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "sourceMap": true,
+    "incremental": true, // Enable incremental compilation
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo", // Specify the location for tsbuildinfo file
+    "inlineSources": true,
+
+    // # Strictness
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // # Modules
+    "moduleResolution": "node",
+    "module": "CommonJS",
+
+    // # Output
+    "declaration": true, // Generates corresponding '.d.ts' file
+    "composite": true,
+    "declarationMap": true, // Generates corresponding '.d.ts.map' file
+
+    // # Lib
+    "lib": ["ESNext", "DOM", "DOM.Iterable"] // Include DOM library for browser compatibility
+  },
+  "include": [
+    "src/**/*", // Include all files in the src directory
+    "tests/**/*" // Include test files located in 'tests' directory
+  ],
+  "exclude": [
+    "node_modules", // Exclude node_modules from compilation
+    "dist", // Exclude dist from compilation to prevent recursion
+    "**/*.test.ts" // Exclude Test-Files inside src
+  ]
+}

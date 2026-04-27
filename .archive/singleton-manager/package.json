@@ -1,0 +1,30 @@
+{
+  "name": "@ocubist/singleton-manager",
+  "version": "0.6.1",
+  "description": "A simple but effective Singleton-Manager.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "rimraf dist && tsc",
+    "publishProject": "npm run build && npm publish --access public",
+    "test": "jest --config jest.config.js --detectOpenHandles",
+    "test:watch": "jest --config jest.config.js --watch",
+    "docs": "typedoc",
+    "git:log": "git log --pretty=format:\"%h - %an, %ar : %s\" > coverage/commit_history.txt"
+  },
+  "keywords": [],
+  "author": "ocubist",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "rimraf": "^5.0.7",
+    "ts-jest": "^29.1.5",
+    "ts-node": "^10.9.2",
+    "typedoc": "^0.26.3",
+    "typescript": "^5.5.3"
+  },
+  "dependencies": {
+    "@ocubist/error-alchemy": "^0.9.3",
+    "@ocubist/utils": "^0.6.2"
+  }
+}
