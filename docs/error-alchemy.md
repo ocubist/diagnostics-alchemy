@@ -1,302 +1,211 @@
-# error-alchemy — Deep Analysis
+# Error Framework — Reference
 
-**Package:** `@ocubist/error-alchemy` v0.9.2  
-**Status:** Built, published, solid foundation  
-**Verdict:** The best package in the monorepo. Keep and modernize.
+**Module:** `src/errors/` in `@ocubist/diagnostics-alchemy`
+**Status:** Implemented, 134 tests passing
 
----
-
-## What It Does
-
-error-alchemy is a structured error framework for TypeScript. It provides:
-
-1. **A rich base error class** (`TransmutedError`) that extends `Error` with typed metadata
-2. **Two semantic subclasses** (`MysticError`, `SynthesizedError`) for categorizing error state
-3. **Factory functions** for creating custom typed error classes at definition time
-4. **A transmuter system** for converting foreign errors (Axios, Zod, etc.) into typed errors
-5. **A synthesizer system** for chaining transmuters into a middleware pipeline
-6. **A resolver system** for routing errors to handlers at the boundary
-7. **Zod-based validation helpers** that throw typed errors on failure
+This is the modernized successor to the `error-alchemy` archive package. All bugs from the archive have been fixed. The API is largely the same, with a few deliberate changes.
 
 ---
 
-## Architecture
-
-### The Error Hierarchy
+## The Error Hierarchy
 
 ```
 Error (native)
 └── TransmutedError          ← enriched base class
-    ├── MysticError           ← semantic: unhandled / unknown origin
-    └── SynthesizedError      ← semantic: identified / ready to handle
+    ├── MysticError           ← "unknown/unhandled" — origin unclear
+    └── SynthesizedError      ← "identified/typed" — ready to catch by type
 ```
 
-**TransmutedError** enriches `Error` with:
+### TransmutedError fields
 
-- `name` — overridden, no longer generic "Error"
-- `severity` — `unimportant | minor | unexpected | critical | fatal | catastrophic`
-- `errorCode` — one of 70+ predefined codes (e.g. `DATA_INTEGRITY_VIOLATION`, `HTTP_NOT_FOUND`)
-- `module` — the package/system where the error originates
-- `context` — the function/component where the error originates
-- `cause` — human-readable description of _why_ this error exists (distinct from the error message)
-- `payload` — arbitrary `Record<string, unknown>` for structured debugging data
-- `origin` — the original error that was caught and wrapped
-- `instanceUuid` — unique UUID per error instance
-- `identifier` getter — composed string `name/module/context/errorCode`
-- `severityDescription` getter — human-readable severity label
+| Field | Type | Description |
+|---|---|---|
+| `message` | `string` | What happened (standard Error message) |
+| `name` | `string` | The error class name (e.g. `"FileNotFoundError"`) |
+| `severity` | `Severity` | One of 6 levels; defaults to `"unexpected"` |
+| `errorCode` | `ErrorCode` | One of 79 predefined codes; defaults to `"UNKNOWN_ERROR"` |
+| `reason` | `string \| undefined` | *Why* this error exists — human-readable explanation |
+| `payload` | `Record<string, unknown>` | Arbitrary structured debug data; defaults to `{}` |
+| `module` | `string \| undefined` | Which package/system produced this |
+| `context` | `string \| undefined` | Which function/handler produced this |
+| `origin` | `unknown` | The original error that was caught and wrapped |
+| `instanceUuid` | `string` | Unique UUID per instance (`crypto.randomUUID()`) |
+| `identifier` | `string` (getter) | `name/module/context/errorCode` — composed key |
+| `severityDescription` | `string` (getter) | Human-readable severity label |
 
-**MysticError** — identical to `TransmutedError`, semantic label for "this error hasn't been handled yet, origin unknown."
+**Note on `reason`:** The archive used `cause` for this field. Renamed to `reason` to avoid collision with native `Error.cause` (ES2022). If you pass `reason: "..."` and also pass `origin` that is a `TransmutedError`, the explicit `reason` wins.
 
-**SynthesizedError** — identical to `TransmutedError`, semantic label for "this error is identified and can be caught by type."
+**Origin inheritance:** When `origin` is a `TransmutedError`, its `reason`, `module`, `context`, `severity`, and `errorCode` are inherited as defaults — the wrapping error doesn't have to repeat them. Explicit props always override.
 
-### The Crafting System
+---
 
-Instead of manually subclassing, you use factory functions:
+## The Crafting System
+
+### `craftMysticError(props)` / `craftSynthesizedError(props)`
+
+The idiomatic way to define typed errors. You get a real class with `compare()`, strong types, and pre-filled static metadata.
 
 ```typescript
-// Define once, at module level
-const { craftMysticError } = useErrorAlchemy("my-module", "my-context");
-
-export const FileNotFoundError = craftMysticError({
+const FileNotFoundError = craftMysticError({
   name: "FileNotFoundError",
-  cause: "The requested file does not exist",
   errorCode: "FILE_NOT_FOUND",
   severity: "critical",
+  reason: "The requested file does not exist",
 });
 
-// Use at runtime
-throw new FileNotFoundError({ message: `File not found: ${path}`, payload: { path } });
+// Instance props merge with (and override) static props
+throw new FileNotFoundError({
+  message: `File not found: ${path}`,
+  payload: { path },
+});
 
-// Check type
+// Safe instanceof that survives ESM module boundary differences
 if (FileNotFoundError.compare(err)) { ... }
 ```
 
-Each crafted class:
-
-- Inherits from `MysticError` or `SynthesizedError`
-- Has a `dynamicClassUuid` for class-identity comparison
-- Has a static `compare(err)` method as a safe `instanceof` alternative
-- Has `module` and `context` pre-filled from `useErrorAlchemy`
+Each crafted class gets a `dynamicClassUuid` at definition time. `compare()` checks both `instanceof` and the UUID, so it works even if the same module is loaded twice under different paths.
 
 ### `useErrorAlchemy(module, context)`
 
-The main entry point. Returns all crafting functions pre-bound to the `module`/`context` pair:
-
-- `craftMysticError`
-- `craftSynthesizedError`
-- `craftErrorTransmuter`
-- `craftErrorSynthesizer`
-- `craftErrorLogger`
-- `craftErrorResolverMap`
-- `craftErrorResolver`
-
-### The Transmuter System
-
-A **Transmuter** converts an unknown error into a typed one:
+The recommended entry point per file. Pre-binds `module` and `context` so every error produced in this file is automatically tagged.
 
 ```typescript
-// Define
-const axiosTransmuter = craftErrorTransmuter(
-  (err) => axios.isAxiosError(err), // detector: is this my type?
-  (err: AxiosError) =>
-    new MyHttpError({
-      // transmuter: convert it
-      message: err.message,
-      origin: err,
-    }),
+const { craftMysticError, craftErrorTransmuter } = useErrorAlchemy(
+  "auth-service",
+  "LoginHandler"
 );
 
-// Use
-const typed = axiosTransmuter.execute(unknownError); // runs detector, then transmuter if match
+export const LoginFailedError = craftMysticError({
+  name: "LoginFailedError",
+  errorCode: "AUTH_INVALID_CREDENTIALS",
+  severity: "critical",
+  // module: "auth-service" and context: "LoginHandler" are injected automatically
+});
 ```
 
-### The Synthesizer System
+Returns: `craftMysticError`, `craftSynthesizedError`, `craftErrorTransmuter`, `craftErrorSynthesizer`, `craftErrorLogger`, `craftErrorResolverMap`, `craftErrorResolver`.
 
-A **Synthesizer** chains multiple transmuters. It tries each one until a match:
+---
+
+## The Transmuter Pipeline
+
+### `craftErrorTransmuter(detector, transmuter)` → `Transmuter`
+
+Converts one specific foreign error type into a typed error.
+
+```typescript
+const zodTransmuter = craftErrorTransmuter(
+  (err) => err instanceof ZodError,
+  (err: ZodError) => new ValidationFailedError({
+    message: err.errors.map(e => e.message).join(" | "),
+    origin: err,
+  })
+);
+
+// Use directly
+const result = zodTransmuter.execute(unknownError);
+// → typed ValidationFailedError if ZodError, otherwise passes through unchanged
+```
+
+### `craftErrorSynthesizer(chain)` → `Synthesizer`
+
+Chains multiple transmuters. First match wins. Chains can contain other synthesizers (nested pipelines).
 
 ```typescript
 const synthesizer = craftErrorSynthesizer([
-  axiosTransmuter,
   zodTransmuter,
-  myCustomTransmuter,
+  axiosTransmuter,
+  dbTransmuter,
 ]);
 
-const typedError = synthesizer.synthesize(unknownError);
+const typed = synthesizer.synthesize(unknownError);
 ```
 
-### The Resolver System
+---
 
-A **Resolver** handles errors at the boundary by routing to typed handlers:
+## The Resolver System
+
+### `craftErrorResolver(props)` → `(err) => void`
+
+Composes the full pipeline: synthesize → log → dispatch to typed handler.
 
 ```typescript
 const resolver = craftErrorResolver({
   synthesizer,
-  logger: (err) => console.error(err),
+  logger: (err) => log.error("Unhandled", err),
   errorResolverMap: craftErrorResolverMap(
     [NotFoundError, (err) => res.status(404).json({ error: err.message })],
-    [AuthError, (err) => res.status(401).json({ error: err.message })],
+    [AuthError,     (err) => res.status(401).json({ error: err.message })],
   ),
   defaultResolver: (err) => res.status(500).json({ error: "Internal error" }),
 });
 
-// In a catch block:
-resolver(err);
+router.use((err, req, res, next) => resolver(err));
 ```
 
-### The Logger Dispatcher
+### `craftErrorLogger(props)` → `(err) => void`
+
+Routes errors to per-severity handlers. Useful for wiring the resolver into the logger.
 
 ```typescript
-const logger = craftErrorLogger({
-  default: (err) => console.error(err),
-  critical: (err) => alerting.send(err),
-  fatal: (err) => process.exit(1),
+const logError = craftErrorLogger({
+  default:   (err) => log.error("Error", { payload: { err: objectifyError(err) } }),
+  fatal:     (err) => log.fatal("FATAL", { payload: { err: objectifyError(err) } }),
+  unimportant: (err) => log.debug("Minor", { payload: { err: objectifyError(err) } }),
 });
-
-logger(anyError); // dispatches based on severity
 ```
-
-### Severity Levels
-
-| Level          | Meaning                                 |
-| -------------- | --------------------------------------- |
-| `unimportant`  | Expected, informational, can be ignored |
-| `minor`        | Small issue, no action required         |
-| `unexpected`   | Should not happen but is not fatal      |
-| `critical`     | Requires immediate attention            |
-| `fatal`        | Application cannot continue normally    |
-| `catastrophic` | System failure, data loss possible      |
-
-### Error Codes
-
-70+ predefined codes covering: AUTH, BUSINESS, CLIENT, CONFIG, DATA, DB, DEPLOYMENT, ENV, FILE, HTTP, MONITORING, NETWORK, NPM, OPERATION, PERFORMANCE, RESOURCE, RUNTIME, SECURITY, SERVER, TEST, UI, VALIDATION, WEBSOCKET, UNKNOWN.
-
-### Validation Helpers
-
-All throw typed errors (`AssertFailedError`, `ParseFailedError`) instead of raw Zod errors:
-
-| Function                       | Behavior                                    |
-| ------------------------------ | ------------------------------------------- |
-| `assert(value, schema)`        | Asserts value matches schema (narrows type) |
-| `assertDefined(value)`         | Throws if null/undefined                    |
-| `assertTruthy(value)`          | Throws if falsy                             |
-| `assertFalsy(value)`           | Throws if truthy                            |
-| `assertEmpty(value)`           | Throws if not empty                         |
-| `assertNotEmpty(value)`        | Throws if empty                             |
-| `parse(value, schema)`         | Parses and throws typed error on failure    |
-| `asyncParse(value, schema)`    | Async version                               |
-| `validate(value, schema)`      | Returns boolean                             |
-| `asyncValidate(value, schema)` | Async boolean                               |
 
 ---
 
-## What's Genuinely Good
+## Severity Levels
 
-- The `craftMysticError`/`craftSynthesizedError` factory pattern is ergonomic and elegant — you get a proper class with `compare()`, strong types, and pre-filled metadata in one call.
-- `useErrorAlchemy(module, context)` as a DI-lite pattern means every error in a module is automatically tagged — great for debugging.
-- The transmuter pipeline pattern is clean and composable.
-- 70+ error codes as a standardized vocabulary is one of the most practically useful parts of the whole monorepo.
-- 6 severity levels map well to real-world alerting tiers.
-- The resolver/resolverMap pattern nicely separates error handling from error throwing.
-
----
-
-## Problems Found
-
-### 1. Leftover test artifact in `TransmutedError`
-
-```typescript
-get simpleGetter() {
-  return "works";  // ← this should not exist in production code
-}
-```
-
-Remove it.
-
-### 2. `cause` naming collision with native `Error.cause` (ES2022)
-
-`TransmutedError` defines `cause?: string` which is a human-readable description like "This function requires a Node.js environment". But native `Error.cause` (ES2022) is also a thing — it's the original error that was the cause. This creates confusion and potential serialization issues. The field should be renamed to something like `causeDescription` or `errorCause`.
-
-### 3. Suspicious constructor logic for `origin`
-
-```typescript
-if (props.origin instanceof Error) {
-  const err = props.origin;
-  // @ts-ignore
-  if (err.hasOwnProperty("origin") && typeof err.cause === "string") {
-    // @ts-ignore
-    originProps.cause = err.cause; // ← uses err.cause but checks err.origin
-  }
-}
-```
-
-This checks `err.hasOwnProperty("origin")` but then reads `err.cause`. This looks like a bug — it checks one property to decide whether to read another. The intent seems to be: "if the origin is a TransmutedError, inherit its cause" — but this should just be `if (props.origin instanceof TransmutedError)`.
-
-### 4. `Object.hasOwnProperty.call` pattern
-
-Used in several places (`SingletonHold`, `TransmutedError` constructor). Should use `Object.hasOwn()` (ES2022) or at minimum `Object.prototype.hasOwnProperty.call()`.
-
-### 5. Typo in utility function name
-
-```typescript
-export const popTranceStack = ...  // should be popTraceStack
-```
-
-### 6. CJS-only, no `exports` field
-
-```json
-"main": "dist/index.js",
-"types": "dist/index.d.ts",
-```
-
-No `"type": "module"`, no `"exports"` field. For a new ESM package this needs to be:
-
-```json
-"type": "module",
-"exports": {
-  ".": {
-    "import": "./dist/index.js",
-    "types": "./dist/index.d.ts"
-  }
-}
-```
-
-And the build needs to output `.js` files with ESM syntax (not CommonJS).
-
-### 7. Build tooling is outdated
-
-Uses `jest` + `ts-jest` for testing and plain `tsc` for building. For a new ESM package:
-
-- Testing: switch to `vitest` (ESM-native, zero config)
-- Building: switch to `tsup` or `unbuild` (handles ESM + declaration files cleanly)
-
-### 8. `uuid` v10 is fine but unnecessary
-
-`uuid` is used only to generate instance UUIDs and dynamic class UUIDs. You could replace this with `crypto.randomUUID()` (Node 14.17+, browser-native), eliminating a dependency.
+| Level | Description |
+|---|---|
+| `unimportant` | Can safely be ignored |
+| `minor` | Does not need immediate attention (visual bugs, etc.) |
+| `unexpected` | Was not expected and can potentially be harmful (default) |
+| `critical` | Might break functionality but shouldn't be fatal |
+| `fatal` | Will potentially cause complete system failure |
+| `catastrophic` | Might cause real damage (data loss, security breach) |
 
 ---
 
-## What to Carry Forward into alchemy-diagnostics
+## Error Codes
 
-Almost everything. The core architecture is sound:
+79 predefined codes in `errorCodeSelector`. Grouped by domain:
 
-- `TransmutedError` base class (with `cause` rename fix, remove `simpleGetter`)
-- `MysticError` / `SynthesizedError` distinction
-- `craftMysticError` / `craftSynthesizedError` factory pattern with `compare()`
-- `useErrorAlchemy(module, context)` factory
-- Transmuter / Synthesizer systems
-- Resolver / ResolverMap / ErrorLogger
-- Severity levels (all 6)
-- ErrorCode vocabulary (all 70+)
-- Validation helpers (`assert`, `parse`, `validate`, `assertDefined`, etc.)
+`AUTH_*`, `BUSINESS_*`, `CLIENT_*`, `CONFIG_*`, `DATA_*`, `DB_*`, `DEPLOYMENT_*`, `ENV_*`, `FILE_*`, `HTTP_*`, `MONITORING_*`, `NETWORK_*`, `NPM_*`, `OPERATION_*`, `PERFORMANCE_*`, `RESOURCE_*`, `RUNTIME_*`, `SECURITY_*`, `SERVER_*`, `TEST_*`, `UI_*`, `VALIDATION_*`, `WEBSOCKET_*`, `UNKNOWN_ERROR`
 
-What to modernize:
+---
 
-- Full ESM build
-- `vitest` instead of `jest`
-- `tsup` for building
-- `crypto.randomUUID()` instead of `uuid` package
-- Fix `cause` → `causeDescription`
-- Fix origin constructor logic
-- Remove `simpleGetter`
-- Fix `popTranceStack` typo → `popTraceStack`
-- Add `Object.hasOwn()` usage
+## Validation Helpers
+
+All throw typed errors instead of raw Zod errors or plain `Error`.
+
+| Function | What it does |
+|---|---|
+| `assert(value, schema?)` | Zod schema assertion — throws `AssertFailedError` on failure |
+| `assertDefined(value)` | Throws `AssertDefinedFailedError` if null or undefined |
+| `assertTruthy(value)` | Throws `AssertTruthyFailedError` if falsy |
+| `assertFalsy(value)` | Throws `AssertFalsyFailedError` if truthy |
+| `assertEmpty(value)` | Throws `AssertEmptyFailedError` if not empty (string/array/Set/Map/object) |
+| `assertNotEmpty(value, min?, max?)` | Throws `AssertNotEmptyFailedError` or `AssertNotEmptyBoundsError` |
+| `parse(value, schema)` | Zod parse — throws `ParseFailedError` (wraps ZodError) |
+| `asyncParse(value, schema)` | Async version — throws `AsyncParseFailedError` |
+| `validate(value, schema)` | Returns `boolean`, never throws |
+| `asyncValidate(value, schema)` | Async boolean, never rejects |
+
+---
+
+## Changes from the Archive
+
+| Archive (`error-alchemy`) | This implementation |
+|---|---|
+| `cause?: string` field | Renamed to `reason` (avoids `Error.cause` collision) |
+| `popTranceStack` (typo) | Fixed to `popTraceStack` |
+| `escapeIdentifierPart` using string `"///g"` | Fixed to regex `/\//g` |
+| `uuid` package for IDs | `crypto.randomUUID()` — no extra dependency |
+| `Object.hasOwnProperty.call` | `Object.hasOwn()` |
+| Broken origin constructor (hasOwnProperty + err.cause) | Fixed to `instanceof TransmutedError` check |
+| `simpleGetter` test artifact on TransmutedError | Removed |
+| CommonJS, tsc, jest | Full ESM, tsup, vitest |

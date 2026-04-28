@@ -1,241 +1,168 @@
-# alchemy-diagnostics — Synthesis & Recommendations
+# diagnostics-alchemy — Architecture & Decisions
 
-**Date:** 2026-04-27  
-**Purpose:** Strategic assessment of the existing monorepo and recommendations for the new `alchemy-diagnostics` package.
-
----
-
-## The Big Picture
-
-The 7 packages in this monorepo were always scaffolding for one goal: **a structured logger that is deeply integrated with a typed error system.** The logger package was the destination; everything else was built to support it.
-
-- `error-alchemy` → the error model (types, taxonomy, crafting)
-- `utils` → serialization (`objectify`, `objectifyError`), ANSI colors
-- `file-stream-manager` → high-performance file writing with SonicBoom
-- `singleton-manager` → runtime instance registry (shared state between modules)
-- `event-handler` → write event notifications
-- `http-request-handler` → (optional) remote log shipping
-- `logger` → the actual logger — never implemented
-
-The concept is solid. The execution got stuck on infrastructure. Now is the time to consolidate.
+**Package:** `@ocubist/diagnostics-alchemy` v0.1.0
+**Date:** 2026-04-27
+**Status:** Implemented, 191 tests passing, build clean
 
 ---
 
-## What to Keep, Drop, or Replace
+## What Was Built
 
-| Package                    | Decision             | Reason                                                                                    |
-| -------------------------- | -------------------- | ----------------------------------------------------------------------------------------- |
-| **error-alchemy**          | **Keep & modernize** | Core value. Unique API. Solid architecture. Minor bugs to fix.                            |
-| **utils / objectify**      | **Keep & clean up**  | `objectify` and `objectifyError` are unique and valuable. Remove debug logs. Fix exports. |
-| **utils / objectifyError** | **Keep & unify**     | Merge the two implementations. The advanced one wins.                                     |
-| **file-stream-manager**    | **Internalize**      | Good concept, but only useful inside the logger. Not a public API.                        |
-| **singleton-manager**      | **Drop**             | ESM modules are singletons. Replace with `Map` where dynamic registry is needed.          |
-| **event-handler**          | **Drop**             | Redundant wrapper. Use Node's EventEmitter or callbacks directly.                         |
-| **http-request-handler**   | **Drop**             | Peripheral. Use `ky` or `fetch` if remote logging is ever needed.                         |
-| **logger**                 | **Build**            | The whole point. Build it now.                                                            |
-
----
-
-## The "Alchemy" Theme — One Package or Two?
-
-You asked: _"Why not pack everything into one 'alchemy' theme? Maybe `alchemy-diagnostics`?"_
-
-**Recommendation: Two packages.**
-
-### Option A: One Package — `alchemy-diagnostics`
-
-**Pros:**
-
-- Single install: `npm install alchemy-diagnostics`
-- One coherent API surface
-- No internal version management
-
-**Cons:**
-
-- Forces error-alchemy consumers (who only want typed errors, no logging) to take Pino as a dependency
-- Harder to tree-shake
-- A pure error library (`error-alchemy`) has broad utility; a logger is more specialized
-
-### Option B: Two Packages — `error-alchemy` + `alchemy-logger` (Recommended)
+One package that does two things:
 
 ```
-error-alchemy       → typed errors, Zod validation, transmuters, resolvers
-alchemy-logger      → Pino logger + error integration + file output + objectify
+@ocubist/diagnostics-alchemy
+    ├── src/errors/      ← typed error framework (ported + modernized from error-alchemy archive)
+    └── src/logger/      ← hierarchical structured logger (new)
 ```
 
-**Pros:**
+### Why One Package, Not Two
 
-- `error-alchemy` stays lean (no Pino, no fs, no SonicBoom)
-- `alchemy-logger` depends on `error-alchemy` — clear direction
-- Users who just want typed errors don't carry a logger
-- Both packages stay focused on one responsibility
+The original planning doc recommended two packages (`error-alchemy` + `alchemy-logger`). That decision was revisited and reversed for good reason:
 
-**Cons:**
+- The error framework is useless without logging, and the logger is useless without typed errors. They're not independent utilities — they're two halves of one system.
+- One install. No internal version management. No compatibility drift.
+- The "tree-shaking" argument doesn't hold here: even if you only use the error framework, you're not loading SonicBoom or chalk at runtime (they're only instantiated when you call `useLogger`).
 
-- Two packages to publish/version
-- Need to keep their versions compatible
-
-**Conclusion:** Two packages. `error-alchemy` is the foundation; `alchemy-logger` (or `alchemy-diagnostics`) is built on top of it.
+The docs and archive still reference the two-package plan. The archive is kept for reference only. The new package supersedes both `error-alchemy` and all the logger work.
 
 ---
 
-## Recommended Architecture for `alchemy-diagnostics` / `alchemy-logger`
+## Decision Log
 
-### API Design
+### Error framework
+
+| Decision | Choice | Reason |
+|---|---|---|
+| `cause` vs `reason` | `reason` | `Error.cause` is native ES2022 — collision avoided |
+| UUID generation | `crypto.randomUUID()` | No external `uuid` package needed |
+| `instanceof` across module boundaries | `dynamicClassUuid` + `compare()` | ESM module instances can differ; UUID survives |
+| Build tool | tsup | Handles ESM + dts cleanly, zero config |
+| Test tool | vitest | ESM-native, no jest CJS hacks needed |
+| `Object.hasOwnProperty.call` | `Object.hasOwn()` | ES2022, available at target |
+
+All bugs found in the archive were fixed:
+- `escapeIdentifierPart` — was `replace("///g", ...)` (string, not regex) → fixed to `/\//g`
+- `popTranceStack` typo → `popTraceStack`
+- `cause` field collision with native `Error.cause` → renamed to `reason`
+- `simpleGetter` test artifact removed from `TransmutedError`
+- Origin inheritance logic fixed: `if (props.origin instanceof TransmutedError)` instead of the original broken `hasOwnProperty` check
+
+### Logger
+
+| Decision | Choice | Reason |
+|---|---|---|
+| Transport architecture | Custom transport, not Pino's API | Pino as a driver requires piping JSON through a transform stream to reformat it for stdout — wasteful. Direct chalk + SonicBoom is simpler and sufficient. |
+| Pino dependency | Removed (was listed, never used) | We don't use pino's API at all. SonicBoom + chalk + our own formatting achieves the same result for typical usage. |
+| File writing | SonicBoom directly | Proper async buffer with `flushSync()` for exit safety. Naive `fs.writeFile` callbacks drop logs on process exit. |
+| HTTP transport | Not implemented | Callbacks cover it — pass a `callbackFunctions` entry that does a `fetch`. See "Future work" below. |
+| Browser support | Yes, via BrowserTransport | `%c` CSS directives give DevTools color-coding. Same `LogEntry` type, same API. |
+| Context stacking | Dot-path (`app.auth.login`) | One string, human-readable, easily filterable in log aggregators |
+| Context at three levels | Logger creation, `specialize()`, per-call | Maximum flexibility without boilerplate |
+
+---
+
+## Package Structure
+
+```
+src/
+  errors/
+    error-code/          ← 79 error codes as const + Zod enum
+    severity/            ← 6 severity levels + descriptions
+    config/              ← default values (module, context, errorCode, severity)
+    utility/             ← escapeIdentifierPart, createIdentifier, popTraceStack, PropsValidationError
+    transmuted-errors/   ← TransmutedError, MysticError, SynthesizedError + types
+    crafting/
+      craft-errors/      ← craftMysticError, craftSynthesizedError
+      Transmuter/        ← craftErrorTransmuter
+      Synthesizer/       ← craftErrorSynthesizer
+      Resolver/          ← craftErrorLogger, craftErrorResolverMap, craftErrorResolver
+      useErrorAlchemy/   ← primary entry point (pre-binds module/context)
+    validation/
+      asserters/         ← assert, assertDefined, assertTruthy, assertFalsy, assertEmpty, assertNotEmpty
+      parsers/           ← parse, asyncParse
+      validators/        ← validate, asyncValidate
+    index.ts             ← barrel
+
+  logger/
+    types.ts             ← LogLevel, LogEntry, LogCallContext, LoggerOptions, restrictions enums
+    restrictions.ts      ← isServerEnvironment, checkEnvironmentRestriction, checkRuntimeRestriction, isLevelEnabled
+    context.ts           ← buildContextPath (dot-path stacking)
+    formatters/
+      objectifyError.ts  ← deep serialization of TransmutedError chains
+      formatNodeEntry.ts ← chalk-formatted single-line output for stdout
+      levelColors.ts     ← chalk styles + CSS strings per log level
+    transports/
+      types.ts           ← Transport interface
+      NodeTransport.ts   ← chalk stdout + SonicBoom file (with exit flush hooks)
+      BrowserTransport.ts← console.* with %c CSS
+    Logger.ts            ← Logger class
+    useLogger.ts         ← factory (creates transport, returns Logger)
+    index.ts             ← barrel
+
+  index.ts               ← root barrel (re-exports errors/* and logger/*)
+```
+
+---
+
+## Dependencies
+
+| Package | Why |
+|---|---|
+| `chalk ^5.3` | ANSI color formatting for Node stdout (ESM-native, no CJS hacks) |
+| `sonic-boom ^4` | Buffered async file writes with safe `flushSync()` on process exit |
+| `zod ^3.23.8` | Runtime validation of error props; Zod enum for ErrorCode/Severity types |
+
+No Pino. No uuid. No http-request-handler. No singleton-manager. No event-handler.
+
+---
+
+## Future Work
+
+### HTTP Transport (suspended indefinitely)
+
+Not built. Not planned for v0.1 or v0.2.
+
+**Why not:** The callback system already handles it cleanly:
 
 ```typescript
-import { useLogger } from "alchemy-diagnostics";
-
-const log = useLogger("my-module", "DatabaseService");
-
-log.info("Connected to database", { host: "localhost", port: 5432 });
-log.warn("Slow query detected", { duration: 1230, query: "SELECT ..." });
-log.error("Query failed", err, { table: "users", operation: "INSERT" });
-log.fatal("Database connection lost", err);
-```
-
-### Under the Hood
-
-```
-useLogger(module, context)
-    ↓
-pino.child({ module, context })     ← pre-bound Pino logger
-    ↓
-pino destinations:
-    ├── stdout (via pino-pretty in dev, raw JSON in prod)
-    └── file (via pino.multistream + SonicBoom)
-```
-
-### Error Integration
-
-```typescript
-// Errors are automatically serialized via objectifyError
-log.error("Request failed", transmutedError);
-// → Pino entry includes:
-//   err.name, err.message, err.stack (cleaned)
-//   err.severity, err.errorCode, err.module, err.context
-//   err.payload (arbitrary debug data)
-//   err.origin (the original error that was wrapped)
-```
-
-### `craftErrorLogger` Integration
-
-```typescript
-const logError = craftErrorLogger({
-  default: (err) => log.error("Error", err),
-  critical: (err) => log.error("Critical", err),
-  fatal: (err) => log.fatal("Fatal", err),
-  unimportant: (err) => log.debug("Minor issue", err),
+const log = useLogger({
+  callbackFunctions: [
+    (entry) => fetch("https://my-log-sink.example.com/ingest", {
+      method: "POST",
+      body: JSON.stringify(entry),
+      headers: { "Content-Type": "application/json" },
+    }).catch(() => {}), // fire-and-forget
+  ],
 });
-
-// At API boundaries:
-router.use((err, req, res, next) => {
-  logError(err);
-  res.status(500).json({ error: "Internal error" });
-});
 ```
 
-### Specializations (the planned feature)
+If fire-and-forget is insufficient (e.g., you need guaranteed delivery, batching, retry, backpressure), that's a full-blown transport system — a separate package or a purpose-built integration. Building a naive HTTP transport into the logger core would give false confidence without delivering those guarantees.
 
-```typescript
-log
-  .withSpecialization("HTTP", { method: "GET", path: "/users" })
-  .withSpecialization("User", { userId: "123" })
-  .info("Request completed", { duration: 45 });
-// → Pino entry with specializations: [{ name: "HTTP", ... }, { name: "User", ... }]
-```
+When this becomes a real need: implement it as a separate `callbackFunctions` provider that handles batching + retry internally, and pass it in at `useLogger` time. The logger interface doesn't need to change.
 
-This is the feature that makes this logger unique vs. raw Pino. Multiple named context groups on one entry, without key collisions.
+### Log Rotation
 
----
+SonicBoom exposes a `rotate()` method — it atomically closes and reopens the log file. The trigger (when to rotate) is what's missing.
 
-## Dependency Stack for alchemy-diagnostics
+**What needs to be decided before implementing:**
 
-```
-alchemy-diagnostics
-    ├── pino                 (the logger)
-    ├── pino-pretty          (dev-mode pretty printing, optional/peerDep)
-    ├── sonic-boom           (Pino already includes it, but explicit dep for file streams)
-    ├── error-alchemy        (our typed errors, transmuters, resolvers)
-    └── zod                  (for config validation)
+1. **Trigger type:** Size-based ("rotate when file exceeds 50MB"), time-based ("rotate at midnight"), or both?
+2. **File naming:** Numbered suffixes (`app.log.1`, `app.log.2`, ...) or timestamps (`app-2024-06-01.log`)?
+3. **Retention policy:** Keep the last N files? Keep files younger than N days?
+4. **Compression:** gzip old files to save space?
+5. **Who triggers it:** The logger internally (polling file size) or the OS externally?
 
-Internal utilities (not separate packages):
-    ├── objectify            (from utils — remove debug logs, fix exports)
-    ├── objectifyError       (from utils — the advanced version)
-    └── chalk or ansi-colors (for dev pretty output, if not using pino-pretty)
-```
+The simplest production approach on Linux: use the system's `logrotate` daemon + handle `SIGUSR2` by calling `boom.rotate()`. No code needed in the logger beyond a signal handler. This is how most production Node.js apps do log rotation.
 
-Total external deps: ~4-5 packages. Lean.
+For a pure-Node approach (Windows, Docker, no logrotate): ~50 lines of code — track bytes written, call `boom.rotate()` at threshold, rename the old file, optionally delete beyond the retention limit. No new dependencies needed. Blocked only on the decisions above.
 
----
+### Pino (what it is, why it's not used)
 
-## Modernization Checklist for error-alchemy
+Pino is a third-party JSON logger known for being very fast. The original plan was to use Pino as the underlying serialization engine and write custom transports around it.
 
-Before publishing the updated `error-alchemy`:
+After implementing, that turned out to be backwards: Pino serializes to JSON and writes to a stream, so to get human-readable stdout output you'd have to parse that JSON back and reformat it — an unnecessary round-trip. Our implementation writes formatted output directly to stdout via chalk and structured JSON directly to files via SonicBoom, which is both simpler and at least as fast for typical usage.
 
-- [ ] Convert to full ESM (`"type": "module"`, `"exports"` field)
-- [ ] Switch build from `tsc` to `tsup`
-- [ ] Switch tests from `jest`/`ts-jest` to `vitest`
-- [ ] Replace `uuid` dependency with `crypto.randomUUID()`
-- [ ] Remove `simpleGetter` test artifact from `TransmutedError`
-- [ ] Rename `cause` → `causeDescription` (avoid collision with `Error.cause`)
-- [ ] Fix origin constructor logic (the `hasOwnProperty("origin") && err.cause` bug)
-- [ ] Fix `popTranceStack` typo → `popTraceStack`
-- [ ] Replace `Object.hasOwnProperty.call` → `Object.hasOwn()`
-- [ ] Add `"exports"` to package.json with types, import conditions
-- [ ] Add minimum Node.js version to `engines` field (recommend Node 18+)
+Where Pino's extra performance would actually matter: services logging 100k+ entries per minute, where the logger itself becomes a CPU bottleneck. At that scale, Pino uses a worker thread for serialization so the main thread never blocks. For everything short of that, our implementation is fine.
 
----
-
-## Build Plan for alchemy-diagnostics
-
-### Phase 1 — Foundation (error-alchemy modernized)
-
-1. Modernize `error-alchemy` to ESM with all fixes above
-2. Write vitest tests for all existing functionality
-3. Publish as `@ocubist/error-alchemy` v1.0.0
-
-### Phase 2 — New Package Scaffold
-
-1. Create `alchemy-diagnostics` package (or `@ocubist/alchemy-logger`)
-2. Set up `tsup` build, `vitest` tests, full ESM
-3. Copy and clean up `objectify` and `objectifyError` from utils
-4. Add as internal utilities (not re-exported)
-
-### Phase 3 — Core Logger
-
-1. Implement `useLogger(module, context, options?)` built on `pino.child()`
-2. Implement file destination using SonicBoom with reference counting (internalized from file-stream-manager)
-3. Implement error serialization via `objectifyError`
-4. Wire up `craftErrorLogger` compatibility
-
-### Phase 4 — DX Features
-
-1. Add `pino-pretty` integration for development mode
-2. Add `withSpecialization()` API
-3. Add optional remote destination (using `fetch` not Axios)
-4. Add `redactPaths` support (pass-through to Pino)
-
----
-
-## What Not to Build
-
-- **`singleton-manager` as a package** — replace with `Map` internally
-- **`event-handler` as a package** — use callbacks or EventEmitter directly
-- **`http-request-handler`** — use `ky` if needed
-- **Complex plugin systems** — keep it focused
-- **Browser support** — this is a Node.js logger (file streams, process signals)
-
----
-
-## A Note on the "Alchemy" Theme
-
-The theme is good. "Alchemy" as a metaphor for transforming raw errors into refined, structured knowledge fits both packages. The naming conventions (`craftMysticError`, `craftSynthesizedError`, `transmuter`, `synthesizer`) are distinctive and memorable.
-
-For the logger, staying in the same metaphor makes sense:
-
-- `useLogger` → simple, descriptive
-- Log entries as "distillations" of runtime state
-- `Specialization` as a named context "vessel"
-
-Keep the theme. It gives the packages a coherent identity.
+Pino was removed from `package.json` in v0.1.0. It can be reconsidered as an optional/internal implementation detail in a future version if throughput becomes a concern.

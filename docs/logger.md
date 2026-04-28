@@ -1,229 +1,254 @@
-# logger — Deep Analysis
+# Logger Framework — Reference
 
-**Package:** `@ocubist/logger` v0.1.0  
-**Status:** EMPTY — never implemented  
-**Verdict:** The intention is clear from the type files. This is the package to build. Everything else in the monorepo was scaffolding for it.
+**Module:** `src/logger/` in `@ocubist/diagnostics-alchemy`
+**Status:** Implemented, 57 tests passing
 
 ---
 
-## Current State
+## Core Concept: Hierarchical Context
 
-The `logger` package contains only:
+Every log entry can carry two context paths — `where` (location) and `why` (intent). Both are built up incrementally across three levels:
+
+1. **Logger creation** (`useLogger`) — the root segment
+2. **`specialize()`** — adds another segment per child logger
+3. **Per-call** (`log.info("msg", { where, why })`) — adds a final segment at the call site
+
+Each segment gets dot-appended:
 
 ```typescript
-// LoggerClass.ts
-export class LoggerClass {}
-
-// index.ts — empty, no exports
+const log = useLogger({ where: "app" });
+const authLog = log.specialize({ where: "auth" });
+authLog.warn("Token expired", { where: "tokenValidator" });
+// → where: "app.auth.tokenValidator"
 ```
 
-However, the type files reveal a clear design intent.
+You don't have to use both. `where` and `why` are both optional at every level.
 
 ---
 
-## The Design Intent (from type files)
+## API
 
-### `PinoLogObject` Zod Schema
+### `useLogger(options?)` → `Logger`
+
+Creates the root logger. Also creates the transport (stdout formatter + optional file stream). All loggers derived from `specialize()` share this transport.
 
 ```typescript
-export const PinoLogObject = z.object({
-  level: z.number(), // Pino's numeric level (10=trace, 20=debug, 30=info, ...)
-  time: z.number(), // Unix timestamp in ms
-  msg: z.string().optional(), // The log message
-  pid: z.number(), // Process ID
-  hostname: z.string(), // Machine hostname
-  payload: Payload.optional(), // Arbitrary key-value debug data
-  specializations: z.array(Specialization).optional(), // Named context groups
-  err: ObjectifiedError.optional(), // Serialized error
-  trace: z.array(z.string()).optional(), // Stack trace lines
+import { useLogger } from "@ocubist/diagnostics-alchemy";
+
+const log = useLogger({
+  where: "api-server",
+  minLevel: "info",
+  environment: "server",
+  runtimeEnvironment: "all",
+  logOutput: "stdOut",
 });
 ```
 
-This is a Pino log entry structure, extended with custom fields.
-
-### `Payload`
+### `Logger` methods
 
 ```typescript
-const Payload = z.object({}).catchall(z.unknown());
-// → Record<string, unknown>
+log.debug(message, context?)
+log.info(message, context?)
+log.warn(message, context?)
+log.error(message, context?)
+log.fatal(message, context?)
+
+log.specialize(options)   // → new Logger with extended context
+log.flushSync()           // flush pending file writes (for tests, shutdown hooks)
 ```
 
-Arbitrary structured data attached to a log entry (e.g., `{ userId: "123", endpoint: "/api/users" }`).
+`context` is `{ where?, why?, payload? }` — all optional.
 
-### `Specialization`
+### `Logger.specialize(options)` → `Logger`
+
+Returns a new Logger that inherits all of the parent's settings but appends to `where` / `why`. The underlying transport is shared — same file stream, same stdout.
+
+Child loggers also **inherit and accumulate** parent callbacks. Callbacks added to the child are called on top of the parent's.
 
 ```typescript
-const Specialization = z.object({
-  name: z.string(),
-  payload: z.object({}).catchall(z.any()).optional(),
-});
+const db = log.specialize({ where: "db", why: "query-engine" });
+const userDb = db.specialize({ where: "users" });
+userDb.error("Row not found", { payload: { id: 42 } });
+// where: "api-server.db.users"
+// why:   "query-engine"
 ```
-
-A named context group. E.g., a "DatabaseSpecialization" with `{ queryTime: 45, table: "users" }`. The intent is to allow multiple named data groups on a single log entry without key collisions.
-
-### `Pino` type alias
-
-```typescript
-import { Logger } from "pino";
-export type Pino = Logger;
-```
-
-Confirms the logger is built on Pino.
 
 ---
 
-## What Was Planned
+## `LoggerOptions`
 
-Based on the type files, the `logger` package's dependencies, and the design of all supporting packages, the intended architecture is:
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `where` | `string` | — | Location context segment |
+| `why` | `string` | — | Intent context segment |
+| `minLevel` | `LogLevel` | `"debug"` | Filter out levels below this |
+| `environment` | `"server" \| "device" \| "all"` | `"all"` | Only log in this runtime environment |
+| `runtimeEnvironment` | `"development" \| "production" \| "all"` | `"all"` | Only log when NODE_ENV matches |
+| `logOutput` | `"stdOut" \| "file" \| "all"` | `"stdOut"` | Where to write output |
+| `filePath` | `string` | — | Required when `logOutput` is `"file"` or `"all"` |
+| `callbackFunctions` | `((entry: LogEntry) => void)[]` | `[]` | Custom sinks (remote, metrics, etc.) |
 
-### Logger Instance Creation
+---
 
-Similar to `useErrorAlchemy(module, context)`:
+## Log Levels
 
-```typescript
-const logger = useLogger("my-module", "my-context");
-// → pre-tagged logger that automatically stamps module/context on every entry
-```
+In ascending severity: `debug` → `info` → `warn` → `error` → `fatal`
 
-### Log Methods
+`minLevel` filters out anything below the threshold. Setting `minLevel: "warn"` means `debug` and `info` are silently dropped.
 
-Mapping to Pino levels:
+---
 
-```typescript
-logger.trace(message, payload?)
-logger.debug(message, payload?)
-logger.info(message, payload?)
-logger.warn(message, payload?)
-logger.error(message, error?, payload?)
-logger.fatal(message, error?, payload?)
-```
+## Restriction System
 
-### Error Logging
+### `environment`
 
-The `err` field in `PinoLogObject` would be populated using `objectifyError` from utils, transforming a `TransmutedError` into a structured serializable object. Since `TransmutedError` has `severity`, `errorCode`, `module`, `context`, `payload`, `origin` — all of this would be captured.
+Controls which runtime environment is active:
 
-### File Output
+- `"server"` — only logs when `globalThis.window` is undefined (Node.js / server-side)
+- `"device"` — only logs when `globalThis.window` is defined (browser)
+- `"all"` — always logs (default)
 
-The `file-stream-manager` was designed specifically for this: the logger subscribes to a file stream, writes JSON lines to it via SonicBoom, and unsubscribes on shutdown.
+### `runtimeEnvironment`
 
-### ANSI/Pretty Output (Development)
+Controls which NODE_ENV is active:
 
-The `ansify`/`ansi-colors` system from utils was intended for a pretty-printed development mode output — colorized log levels, formatted messages.
+- `"development"` — only logs when `NODE_ENV === "development"` (or when NODE_ENV is unset)
+- `"production"` — only logs when `NODE_ENV === "production"`
+- `"all"` — always logs (default)
 
-### Write Event Subscription
+### Restriction evaluation
 
-The `event-handler`'s `writeEventName` event was designed so that the logger could react to writes (e.g., for metrics: "how many log entries per second?").
+All restrictions are checked before each log call. If any restriction fails, the entry is dropped silently — transport is not called, callbacks are not called.
 
-### Dependencies in package.json
+---
 
+## Transports
+
+### NodeTransport (auto-selected on Node.js)
+
+- **stdout:** chalk-formatted single-line output with ANSI colors per log level
+- **file:** newline-delimited JSON written asynchronously via SonicBoom
+
+File output format example:
 ```json
-{
-  "pino": "^9.3.2",
-  "@ocubist/error-alchemy": "^0.9.3",
-  "@ocubist/event-handler": "^0.2.3",
-  "@ocubist/http-request-handler": "^0.2.2", // for remote log shipping?
-  "@ocubist/singleton-manager": "^0.6.1",
-  "@ocubist/utils": "^0.6.2"
-}
+{"level":"warn","time":1717243200000,"message":"Token expired","where":"app.auth.tokenValidator","why":"session","payload":{"userId":"u123"}}
 ```
+
+Stdout format example:
+```
+2024-06-01T12:00:00.000Z WARN  [app.auth.tokenValidator] (session) Token expired
+  {"userId":"u123"}
+```
+
+**Exit safety:** SonicBoom's buffer is flushed synchronously on `process.exit`, `SIGINT`, and `SIGTERM`. No log entries are silently lost on shutdown.
+
+### BrowserTransport (auto-selected in browser environments)
+
+Uses `console.debug/info/warn/error` with `%c` CSS directives for color-coded output in DevTools. `filePath` and `logOutput` are ignored in the browser.
 
 ---
 
-## What Needs to Be Built
+## Callbacks — Custom Sinks
 
-The `LoggerClass` body needs to implement:
-
-### 1. Configuration
+The `callbackFunctions` array is called with every emitted `LogEntry` after the transport writes. This is the escape hatch for anything the built-in transports don't cover.
 
 ```typescript
-interface LoggerConfig {
-  module: string;
-  context: string;
-  level?: "trace" | "debug" | "info" | "warn" | "error" | "fatal";
-  destinations?: {
-    file?: string; // path to log file
-    stdout?: boolean; // log to stdout (default: true in dev)
-    remote?: string; // HTTP endpoint for log shipping
-  };
-  pretty?: boolean; // colorized output (default: true in dev, false in prod)
-  redactPaths?: string[]; // pino redact paths (e.g., "req.headers.authorization")
-}
-```
-
-### 2. Core Logging Methods
-
-Each method should:
-
-1. Build a structured log entry with `module`, `context`, `payload`, `specializations`
-2. Serialize any `Error` via `objectifyError` into the `err` field
-3. Call Pino's appropriate level method
-4. Pino handles file writing, stdout, JSON formatting
-
-### 3. Severity → Pino Level Mapping
-
-error-alchemy's `Severity` maps to Pino's numeric levels:
-| Severity | Pino Level |
-|----------|-----------|
-| `unimportant` | `trace` (10) |
-| `minor` | `debug` (20) |
-| `unexpected` | `warn` (40) |
-| `critical` | `error` (50) |
-| `fatal` | `fatal` (60) |
-| `catastrophic` | `fatal` (60) |
-
-### 4. Error-Aware Logging
-
-```typescript
-logger.error("Failed to connect to database", err, { retries: 3 });
-// → pino entry with err field populated by objectifyError(err)
-```
-
-For `TransmutedError` instances, automatically extract `severity`, `errorCode`, `module`, `context` into the log entry so logs are filterable.
-
-### 5. `craftErrorLogger` Integration
-
-The `craftErrorLogger` from error-alchemy returns `(err: unknown) => void`. The logger should be passable directly as a severity-dispatching logger:
-
-```typescript
-const logError = craftErrorLogger({
-  default: (err) => logger.error("Unhandled error", err),
-  critical: (err) => logger.error("Critical error", err),
-  fatal: (err) => logger.fatal("Fatal error", err),
+// Remote HTTP sink (fire-and-forget)
+const log = useLogger({
+  callbackFunctions: [
+    (entry) => {
+      fetch("https://logs.example.com/ingest", {
+        method: "POST",
+        body: JSON.stringify(entry),
+        headers: { "Content-Type": "application/json" },
+      }).catch(() => {}); // don't crash the app on log failure
+    },
+  ],
 });
 ```
 
+```typescript
+// Metrics counter
+const log = useLogger({
+  callbackFunctions: [
+    (entry) => {
+      if (entry.level === "error" || entry.level === "fatal") {
+        metrics.increment("error_count", { level: entry.level });
+      }
+    },
+  ],
+});
+```
+
+Callbacks added via `specialize()` accumulate on top of the parent's callbacks — both fire for every log call on the child.
+
 ---
 
-## Pino Overview (for reference)
+## `objectifyError(err)` — Serializing Errors for Payloads
 
-Pino is the fastest Node.js logger. Key features relevant here:
+`objectifyError` converts any value into a plain JSON-serializable object. It's `TransmutedError`-aware.
 
-- JSON output by default (structured, machine-readable)
-- `pino-pretty` for human-readable dev output
-- Multiple destinations via `pino.multistream()`
-- Redaction of sensitive fields
-- Child loggers with pre-bound context (`pino.child({ module: "auth" })`)
-- SonicBoom is Pino's own file transport — they're designed to work together
+```typescript
+import { objectifyError } from "@ocubist/diagnostics-alchemy";
 
-The `pino.child()` API is exactly what `useLogger(module, context)` should use under the hood.
+log.error("Request failed", {
+  payload: { err: objectifyError(caughtError) },
+});
+```
+
+| Input | Output |
+|---|---|
+| `TransmutedError` (or subclass) | All typed fields: `type`, `message`, `severity`, `errorCode`, `reason`, `module`, `context`, `identifier`, `payload`, `instanceUuid`, `origin` (recursive) |
+| `Error` (plain) | `{ type, message, stack }` |
+| Anything else | `{ value: <the thing> }` |
+
+`origin` chains are followed recursively — a wrapped `TransmutedError` wrapping another `TransmutedError` wrapping a plain `Error` gives you the full chain.
 
 ---
 
-## Verdict for alchemy-diagnostics
+## Integration with the Error Framework
 
-**This is the heart of the new package.** Build it properly.
+```typescript
+import { useLogger, useErrorAlchemy, objectifyError } from "@ocubist/diagnostics-alchemy";
 
-The logger is the reason error-alchemy, utils (objectifyError), and file-stream-manager exist. They are its supporting cast.
+const log = useLogger({ where: "api", minLevel: "info" });
 
-Key decisions for the new implementation:
+const { craftMysticError, craftErrorLogger, craftErrorResolver, craftErrorSynthesizer, craftErrorTransmuter } =
+  useErrorAlchemy("api", "requestHandler");
 
-1. Use Pino as the underlying logger (it's the right choice — fast, structured, ESM-compatible)
-2. Use `pino.child()` for module/context binding
-3. Use `pino.multistream()` for multiple destinations (stdout + file)
-4. Use SonicBoom directly (Pino already uses it internally) for file output
-5. Integrate `objectifyError` for rich error serialization in log entries
-6. Integrate error-alchemy's severity for error log routing
-7. Pretty-print in development using `pino-pretty` (or `@hapi/hoek` color support)
-8. Drop the event-handler dependency — not needed
-9. Drop the http-request-handler dependency — add remote shipping later if needed as an optional transport
-10. Drop singleton-manager — use module-level Map for logger instance registry if needed
+const DbError = craftMysticError({ name: "DbError", errorCode: "DB_CONNECTION_FAILED", severity: "fatal" });
+
+// Wire logger into the error resolver
+const logError = craftErrorLogger({
+  default:      (err) => log.error("Error", { payload: { err: objectifyError(err) } }),
+  fatal:        (err) => log.fatal("FATAL", { payload: { err: objectifyError(err) } }),
+  unimportant:  (err) => log.debug("Minor", { payload: { err: objectifyError(err) } }),
+});
+
+const resolver = craftErrorResolver({
+  synthesizer: craftErrorSynthesizer([
+    craftErrorTransmuter((e) => e instanceof TypeError, (e: TypeError) => new DbError({ message: e.message, origin: e })),
+  ]),
+  logger: logError,
+  defaultResolver: (err) => res.status(500).json({ error: "Internal error" }),
+});
+
+router.use((err, req, res, next) => resolver(err));
+```
+
+---
+
+## LogEntry shape
+
+The raw object passed to transports and callbacks:
+
+```typescript
+interface LogEntry {
+  level: "debug" | "info" | "warn" | "error" | "fatal";
+  time: number;          // Date.now()
+  message: string;
+  where?: string;        // dot-path e.g. "app.auth.login"
+  why?: string;          // dot-path e.g. "session.tokenRefresh"
+  payload?: Record<string, unknown>;
+}
+```
