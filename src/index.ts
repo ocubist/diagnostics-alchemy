@@ -8,3 +8,6 @@
 
 // ─── Error framework ──────────────────────────────────────────────────────────
 export * from "./errors/index";
+
+// ─── Logger framework ─────────────────────────────────────────────────────────
+export * from "./logger/index";
