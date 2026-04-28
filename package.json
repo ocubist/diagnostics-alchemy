@@ -1,0 +1,50 @@
+{
+  "name": "@ocubist/diagnostics-alchemy",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A unified diagnostics package combining a typed error framework with a structured hierarchical logger.",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "logger",
+    "error-handling",
+    "typescript",
+    "nodejs",
+    "pino",
+    "diagnostics",
+    "alchemy",
+    "zod",
+    "structured-logging",
+    "error-framework"
+  ],
+  "author": "ocubist",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "pino": "^9.3.2",
+    "sonic-boom": "^4.0.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.2.4",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
