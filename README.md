@@ -6,7 +6,7 @@ A unified TypeScript diagnostics library — typed error framework + structured 
 npm install @ocubist/diagnostics-alchemy
 ```
 
-Full ESM. Node 18+. Zero config.
+Full ESM. Node 20+. Zero config.
 
 ---
 
@@ -243,4 +243,5 @@ Full list: [`src/errors/error-code/errorCodeSelector.ts`](src/errors/error-code/
 
 - [`docs/error-framework.md`](docs/error-framework.md) — full error framework reference
 - [`docs/logger.md`](docs/logger.md) — full logger reference
+- [`docs/releasing.md`](docs/releasing.md) — release script & CI publish workflow
 - [`docs/origins.md`](docs/origins.md) — where this package came from
