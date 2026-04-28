@@ -133,7 +133,7 @@ try {
 }
 
 try {
-  run("git merge dev --no-edit");
+  run("git merge dev --no-ff --no-edit");
 } catch {
   abort("Merge failed.", () => {
     try { execSync("git merge --abort", { cwd: ROOT, stdio: "inherit" }); } catch {}

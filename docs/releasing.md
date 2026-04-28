@@ -15,7 +15,7 @@ npm run release:major     # bump major (0.1.0 → 1.0.0)
 1. **Pre-flight** — verifies you're on `dev` with no uncommitted changes
 2. **Tests** — runs `npm test`; aborts immediately on failure, nothing is changed
 3. **Version bump** — increments the chosen segment in `package.json`, commits `chore: release vX.Y.Z` on `dev`
-4. **Merge** — `git checkout main && git merge dev --no-edit`; on conflict: aborts merge, returns to `dev`, exits
+4. **Merge** — `git checkout main && git merge dev --no-ff --no-edit`; always creates a merge commit so the branch histories stay distinct; on conflict: aborts merge, returns to `dev`, exits
 5. **Push main** — `git push origin main`; CI picks it up, runs tests, then publishes to npm automatically
 6. **Return to dev** — switches back to `dev`
 
