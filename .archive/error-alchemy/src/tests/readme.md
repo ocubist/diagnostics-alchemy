@@ -1,2 +1,0 @@
-- Folder for jest-test-kits
-- Will be ignored when building
