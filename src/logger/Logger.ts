@@ -1,9 +1,7 @@
 import type { LogCallContext, LogEntry, LogLevel, LoggerOptions, OutputRestriction } from "./types";
 import {
-  checkEnvironmentRestriction,
   checkRuntimeRestriction,
   isLevelEnabled,
-  isServerEnvironment,
 } from "./restrictions";
 import { buildContextPath } from "./context";
 import type { Transport } from "./transports/types";
@@ -13,7 +11,6 @@ interface ResolvedConfig {
   where: string | undefined;
   why: string | undefined;
   minLevel: LogLevel;
-  environment: NonNullable<LoggerOptions["environment"]>;
   runtimeEnvironment: NonNullable<LoggerOptions["runtimeEnvironment"]>;
   logOutput: OutputRestriction;
   callbacks: ((entry: LogEntry) => void)[];
@@ -38,7 +35,6 @@ export class Logger {
       where: options.where?.trim() || undefined,
       why: options.why?.trim() || undefined,
       minLevel: options.minLevel ?? "debug",
-      environment: options.environment ?? "all",
       runtimeEnvironment: options.runtimeEnvironment ?? "all",
       logOutput: options.logOutput ?? "stdOut",
       callbacks: options.callbackFunctions ?? [],
@@ -64,7 +60,6 @@ export class Logger {
         where: buildContextPath(this.config.where, options.where),
         why: buildContextPath(this.config.why, options.why),
         minLevel: options.minLevel ?? this.config.minLevel,
-        environment: options.environment ?? this.config.environment,
         runtimeEnvironment:
           options.runtimeEnvironment ?? this.config.runtimeEnvironment,
         logOutput: options.logOutput ?? this.config.logOutput,
@@ -109,7 +104,6 @@ export class Logger {
   ): void {
     // Restriction checks — bail early if this logger shouldn't fire
     if (!isLevelEnabled(level, this.config.minLevel)) return;
-    if (!checkEnvironmentRestriction(this.config.environment)) return;
     if (!checkRuntimeRestriction(this.config.runtimeEnvironment)) return;
 
     // Build the log entry
@@ -122,13 +116,7 @@ export class Logger {
       payload: context?.payload,
     };
 
-    // Write to transport (Node or browser)
-    if (isServerEnvironment()) {
-      this.transport.write(entry, this.config.logOutput);
-    } else {
-      // BrowserTransport ignores the logOutput arg
-      this.transport.write(entry, this.config.logOutput);
-    }
+    this.transport.write(entry, this.config.logOutput);
 
     // Fire callbacks
     for (const cb of this.config.callbacks) {

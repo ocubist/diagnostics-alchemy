@@ -1,33 +1,8 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import {
-  isServerEnvironment,
-  isBrowserEnvironment,
-  checkEnvironmentRestriction,
   checkRuntimeRestriction,
   isLevelEnabled,
 } from "../../src/logger/restrictions";
-
-describe("isServerEnvironment / isBrowserEnvironment", () => {
-  it("returns true for server in Node (no window in test env)", () => {
-    // vitest runs in Node — globalThis.window is undefined
-    expect(isServerEnvironment()).toBe(true);
-    expect(isBrowserEnvironment()).toBe(false);
-  });
-});
-
-describe("checkEnvironmentRestriction", () => {
-  it('"all" always passes', () => {
-    expect(checkEnvironmentRestriction("all")).toBe(true);
-  });
-
-  it('"server" passes in Node (no window)', () => {
-    expect(checkEnvironmentRestriction("server")).toBe(true);
-  });
-
-  it('"device" fails in Node (no window)', () => {
-    expect(checkEnvironmentRestriction("device")).toBe(false);
-  });
-});
 
 describe("checkRuntimeRestriction", () => {
   const originalEnv = process.env["NODE_ENV"];

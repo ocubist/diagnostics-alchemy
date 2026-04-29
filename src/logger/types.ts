@@ -33,15 +33,6 @@ export interface LogCallContext {
 }
 
 /**
- * Controls which runtime environment triggers logging.
- *
- * - `"server"` — only logs on Node.js (no window object)
- * - `"device"` — only logs in browsers (window object present)
- * - `"all"` — always logs (default)
- */
-export type EnvironmentRestriction = "server" | "device" | "all";
-
-/**
  * Controls which NODE_ENV triggers logging.
  *
  * - `"development"` — only logs when NODE_ENV is "development" (or unset)
@@ -77,9 +68,6 @@ export interface LoggerOptions {
 
   /** Minimum log level to emit. Defaults to "debug". */
   minLevel?: LogLevel;
-
-  /** Which runtime environment this logger is active in. Defaults to "all". */
-  environment?: EnvironmentRestriction;
 
   /** Which NODE_ENV this logger is active in. Defaults to "all". */
   runtimeEnvironment?: RuntimeRestriction;

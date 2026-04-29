@@ -5,10 +5,15 @@
   "description": "A unified diagnostics package combining a typed error framework with a structured hierarchical logger.",
   "exports": {
     ".": {
+      "browser": {
+        "import": "./dist/browser.js",
+        "types": "./dist/browser.d.ts"
+      },
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
   },
+  "sideEffects": false,
   "files": [
     "dist"
   ],

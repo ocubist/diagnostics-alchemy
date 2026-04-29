@@ -4,7 +4,6 @@ export type {
   LogEntry,
   LogCallContext,
   LoggerOptions,
-  EnvironmentRestriction,
   RuntimeRestriction,
   OutputRestriction,
 } from "./types";
@@ -12,9 +11,6 @@ export { LOG_LEVEL_ORDER } from "./types";
 
 // ─── Restrictions helpers ─────────────────────────────────────────────────────
 export {
-  isServerEnvironment,
-  isBrowserEnvironment,
-  checkEnvironmentRestriction,
   checkRuntimeRestriction,
   isLevelEnabled,
 } from "./restrictions";
