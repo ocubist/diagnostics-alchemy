@@ -11,6 +11,10 @@ import type { Transport } from "./types";
  * SonicBoom is used for file writing because it buffers writes asynchronously
  * and exposes a synchronous flush (`flushSync`) that is safe to call on process exit —
  * preventing silent log loss that plain `fs.writeFile` callbacks cannot guarantee.
+ *
+ * `process.once` (not `on`) is used for signal handlers to avoid listener leaks when
+ * multiple transports are created. `destroy()` closes the underlying file descriptor so
+ * the event loop is not kept alive after the transport is no longer needed.
  */
 export class NodeTransport implements Transport {
   private readonly boom: SonicBoom | null;
@@ -19,16 +23,9 @@ export class NodeTransport implements Transport {
     const needsFile = logOutput === "file" || logOutput === "all";
     if (needsFile && filePath) {
       this.boom = new SonicBoom({ dest: filePath, sync: false, mkdir: true });
-      // Ensure buffered data is not lost when the process exits.
-      process.on("exit", () => this.flushSync());
-      process.on("SIGINT", () => {
-        this.flushSync();
-        process.exit(0);
-      });
-      process.on("SIGTERM", () => {
-        this.flushSync();
-        process.exit(0);
-      });
+      process.once("exit",   () => { this.boom?.flushSync(); this.boom?.destroy(); });
+      process.once("SIGINT",  () => { this.boom?.flushSync(); this.boom?.destroy(); process.exit(0); });
+      process.once("SIGTERM", () => { this.boom?.flushSync(); this.boom?.destroy(); process.exit(0); });
     } else {
       this.boom = null;
     }
@@ -46,5 +43,10 @@ export class NodeTransport implements Transport {
 
   flushSync(): void {
     this.boom?.flushSync();
+  }
+
+  destroy(): void {
+    this.boom?.flushSync();
+    this.boom?.destroy();
   }
 }

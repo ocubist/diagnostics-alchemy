@@ -49,4 +49,8 @@ export class BrowserTransport implements Transport {
   flushSync(): void {
     // No-op — console writes are synchronous.
   }
+
+  destroy(): void {
+    // No-op — nothing to close.
+  }
 }

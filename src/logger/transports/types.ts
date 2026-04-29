@@ -9,4 +9,6 @@ export interface Transport {
   write(entry: LogEntry, logOutput: OutputRestriction): void;
   /** Flush any pending writes synchronously (called on process exit). */
   flushSync(): void;
+  /** Close the underlying resource (fd, stream). No-op if nothing to close. */
+  destroy(): void;
 }
