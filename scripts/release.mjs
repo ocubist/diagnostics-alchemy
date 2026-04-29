@@ -133,7 +133,7 @@ try {
 }
 
 try {
-  run("git merge dev --no-ff --no-edit");
+  run(`git merge dev --no-ff -m "Release v${version}"`);
 } catch {
   abort("Merge failed.", () => {
     try { execSync("git merge --abort", { cwd: ROOT, stdio: "inherit" }); } catch {}
