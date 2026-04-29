@@ -5,7 +5,10 @@ import { levelChalkStyles } from "./levelColors";
 const PAD = 5; // "fatal".length === 5
 
 /**
- * Formats a `LogEntry` into a single human-readable line for Node.js stdout.
+ * Formats a `LogEntry` into a single human-readable line.
+ *
+ * Uses chalk for level colours — chalk degrades gracefully to plain text
+ * in environments without ANSI support (e.g. browser DevTools).
  *
  * Example output:
  * ```
@@ -13,7 +16,7 @@ const PAD = 5; // "fatal".length === 5
  *   {"userId":"abc123"}
  * ```
  */
-export const formatNodeEntry = (entry: LogEntry): string => {
+export const formatEntry = (entry: LogEntry): string => {
   const time = chalk.dim(new Date(entry.time).toISOString());
   const level = levelChalkStyles[entry.level](entry.level.toUpperCase().padEnd(PAD));
 

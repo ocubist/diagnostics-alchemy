@@ -1,22 +1,20 @@
 import { Logger } from "./Logger";
 import type { LoggerOptions } from "./types";
-import { NodeTransport } from "./transports/NodeTransport";
+import { ConsoleTransport } from "./transports/ConsoleTransport";
 
 /**
- * Creates a root `Logger` backed by the Node.js transport (stdout + optional file).
+ * Creates a root `Logger` backed by the universal console transport.
  *
- * This is the server-side entry point. In browser contexts, the package's
- * conditional export automatically resolves to `useLogger.browser.ts` instead,
- * which uses `BrowserTransport` — no manual switching needed.
+ * Works in Node.js and browser environments without any configuration.
+ * For file output, add `@ocubist/da-file-transport` as a callback:
  *
  * @example
- * const log = useLogger({ where: "app", minLevel: "info" });
- * log.info("Server started");
+ * import { createFileTransport } from "@ocubist/da-file-transport";
  *
- * const authLog = log.specialize({ where: "auth", why: "user-session" });
- * authLog.warn("Token nearing expiry", { payload: { userId: "u123" } });
+ * const log = useLogger({
+ *   where: "api",
+ *   callbackFunctions: [createFileTransport({ path: "logs/app.log" })],
+ * });
  */
-export const useLogger = (options: LoggerOptions = {}): Logger => {
-  const transport = new NodeTransport(options.filePath, options.logOutput ?? "stdOut");
-  return new Logger(options, transport);
-};
+export const useLogger = (options: LoggerOptions = {}): Logger =>
+  new Logger(options, new ConsoleTransport());

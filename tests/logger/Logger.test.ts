@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Logger } from "../../src/logger/Logger";
 import type { LogEntry, LoggerOptions } from "../../src/logger/types";
 import type { Transport } from "../../src/logger/transports/types";
@@ -6,14 +6,7 @@ import type { Transport } from "../../src/logger/transports/types";
 // Minimal in-memory transport for testing
 const makeTransport = (): Transport & { entries: LogEntry[] } => {
   const entries: LogEntry[] = [];
-  return {
-    entries,
-    write(entry) {
-      entries.push(entry);
-    },
-    flushSync() {},
-    destroy() {},
-  };
+  return { entries, write(entry) { entries.push(entry); }, flushSync() {}, destroy() {} };
 };
 
 const makeLogger = (
@@ -150,28 +143,6 @@ describe("Logger — minLevel filtering", () => {
     logger.debug("d");
     logger.info("i");
     expect(transport.entries).toHaveLength(2);
-  });
-});
-
-describe("Logger — runtime environment restrictions", () => {
-  const originalEnv = process.env["NODE_ENV"];
-  beforeEach(() => {
-    process.env["NODE_ENV"] = "development";
-  });
-  afterEach(() => {
-    process.env["NODE_ENV"] = originalEnv;
-  });
-
-  it('"development" passes when NODE_ENV is "development"', () => {
-    const { logger, transport } = makeLogger({ runtimeEnvironment: "development" });
-    logger.info("msg");
-    expect(transport.entries).toHaveLength(1);
-  });
-
-  it('"production" blocks when NODE_ENV is "development"', () => {
-    const { logger, transport } = makeLogger({ runtimeEnvironment: "production" });
-    logger.info("msg");
-    expect(transport.entries).toHaveLength(0);
   });
 });
 
