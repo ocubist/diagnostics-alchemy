@@ -6,7 +6,7 @@ A unified TypeScript diagnostics library — typed error framework + structured 
 npm install @ocubist/diagnostics-alchemy
 ```
 
-Full ESM. Node 20+. Zero config.
+Full ESM. Node 20+. Zero config. Works in browser environments too.
 
 ---
 
@@ -101,15 +101,15 @@ import { z } from "zod";
 
 const schema = z.object({ id: z.string().uuid(), age: z.number().int().min(0) });
 
-const user = parse(rawInput, schema);           // throws ParseFailedError on failure
+const user = parse(rawInput, schema);            // throws ParseFailedError on failure
 const user = await asyncParse(rawInput, schema); // async version
 
-validate(rawInput, schema);   // returns boolean, never throws
+validate(rawInput, schema);      // returns boolean, never throws
 asyncValidate(rawInput, schema); // async boolean
 
-assertDefined(value);          // throws if null | undefined
-assertNotEmpty(arr, 1, 100);   // throws if empty or out of [min, max]
-assert(value, schema);         // Zod schema assertion
+assertDefined(value);            // throws if null | undefined
+assertNotEmpty(arr, 1, 100);     // throws if empty or out of [min, max]
+assert(value, schema);           // Zod schema assertion
 ```
 
 ---
@@ -122,11 +122,8 @@ assert(value, schema);         // Zod schema assertion
 import { useLogger } from "@ocubist/diagnostics-alchemy";
 
 const log = useLogger({
-  where: "api-server",     // root context segment
-  minLevel: "info",        // filter out debug entries
-  environment: "server",   // only log on Node.js (not in browser)
-  logOutput: "all",        // stdout + file
-  filePath: "logs/app.log",
+  where: "api-server",  // root context segment
+  minLevel: "info",     // filter out debug entries
 });
 
 log.info("Server started", { payload: { port: 3000 } });
@@ -157,30 +154,16 @@ loginLog.error("Credentials rejected", { where: "validator", payload: { userId }
 | `where` | `string` | — | Location segment |
 | `why` | `string` | — | Intent segment |
 | `minLevel` | `"debug"\|"info"\|"warn"\|"error"\|"fatal"` | `"debug"` | Drop entries below this level |
-| `environment` | `"server"\|"device"\|"all"` | `"all"` | `"server"` = Node only, `"device"` = browser only |
-| `runtimeEnvironment` | `"development"\|"production"\|"all"` | `"all"` | Filter by `NODE_ENV` |
-| `logOutput` | `"stdOut"\|"file"\|"all"` | `"stdOut"` | Output destinations |
-| `filePath` | `string` | — | Path for JSON file output (required if `logOutput` includes `"file"`) |
-| `callbackFunctions` | `((entry: LogEntry) => void)[]` | `[]` | Custom sinks |
+| `console` | `boolean` | `true` | Include the built-in console transport. Set `false` for file-only setups. Only affects `useLogger()`. |
+| `transports` | `Transport[]` | `[]` | Additional transport functions called with every emitted entry |
 
-### Serialize errors for log payloads
+### Add transports
 
-```typescript
-import { objectifyError } from "@ocubist/diagnostics-alchemy";
-
-log.error("Request failed", {
-  payload: { err: objectifyError(caughtError) },
-});
-// TransmutedError → all typed fields (severity, errorCode, reason, payload, origin chain, ...)
-// plain Error    → { type, message, stack }
-// anything else → { value: ... }
-```
-
-### Custom sinks via callbacks
+A `Transport` is just a plain function `(entry: LogEntry) => void` — no class to implement.
 
 ```typescript
 const log = useLogger({
-  callbackFunctions: [
+  transports: [
     // Remote HTTP sink
     (entry) => fetch("https://logs.example.com/ingest", {
       method: "POST",
@@ -197,7 +180,38 @@ const log = useLogger({
 });
 ```
 
-Callbacks added in `specialize()` stack on top of the parent's callbacks — both fire.
+Transports added in `specialize()` stack on top of the parent's — all fire.
+
+### File output
+
+File transport is available as a separate package so it never pollutes browser bundles:
+
+```
+npm install @ocubist/da-file-transport
+```
+
+```typescript
+import { useLogger } from "@ocubist/diagnostics-alchemy";
+import { createFileTransport } from "@ocubist/da-file-transport";
+
+const log = useLogger({
+  where: "api",
+  transports: [createFileTransport({ path: "logs/app.log" })],
+});
+```
+
+### Serialize errors for log payloads
+
+```typescript
+import { objectifyError } from "@ocubist/diagnostics-alchemy";
+
+log.error("Request failed", {
+  payload: { err: objectifyError(caughtError) },
+});
+// TransmutedError → all typed fields (severity, errorCode, reason, payload, origin chain, ...)
+// plain Error    → { type, message, stack }
+// anything else → { value: ... }
+```
 
 ### Error framework integration
 
@@ -210,9 +224,9 @@ const { craftMysticError, craftErrorLogger } = useErrorAlchemy("api", "handler")
 const DbError = craftMysticError({ name: "DbError", errorCode: "DB_CONNECTION_FAILED", severity: "fatal" });
 
 const logError = craftErrorLogger({
-  default: (err) => log.error("Error",  { payload: { err: objectifyError(err) } }),
-  fatal:   (err) => log.fatal("FATAL",  { payload: { err: objectifyError(err) } }),
-  unimportant: (err) => log.debug("Minor", { payload: { err: objectifyError(err) } }),
+  default:     (err) => log.error("Error",  { payload: { err: objectifyError(err) } }),
+  fatal:       (err) => log.fatal("FATAL",  { payload: { err: objectifyError(err) } }),
+  unimportant: (err) => log.debug("Minor",  { payload: { err: objectifyError(err) } }),
 });
 ```
 
