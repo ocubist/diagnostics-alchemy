@@ -33,6 +33,15 @@ export interface LogCallContext {
 }
 
 /**
+ * A transport function — receives every emitted `LogEntry`.
+ * Use a plain closure; no interface to implement.
+ *
+ * @example
+ * const myTransport: Transport = (entry) => sendToServer(entry);
+ */
+export type Transport = (entry: LogEntry) => void;
+
+/**
  * Options accepted by `useLogger` (and `Logger.specialize`).
  */
 export interface LoggerOptions {
@@ -52,11 +61,21 @@ export interface LoggerOptions {
   minLevel?: LogLevel;
 
   /**
-   * Array of callback functions called with every emitted LogEntry.
-   * Useful for remote sinks, metrics, or custom alerting.
-   * Use `@ocubist/da-file-transport` for file output.
+   * Whether to include the built-in console transport. Defaults to `true`.
+   * Set to `false` to suppress all console output (e.g. file-only setups).
+   * Only has effect when passed to `useLogger()` — ignored in `specialize()`.
    */
-  callbackFunctions?: ((entry: LogEntry) => void)[];
+  console?: boolean;
+
+  /**
+   * Additional transports — called with every emitted `LogEntry`.
+   * Each transport is a plain function: `(entry: LogEntry) => void`.
+   *
+   * @example
+   * import { createFileTransport } from "@ocubist/da-file-transport";
+   * useLogger({ transports: [createFileTransport({ path: "logs/app.log" })] });
+   */
+  transports?: Transport[];
 }
 
 /**

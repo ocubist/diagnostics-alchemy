@@ -4,6 +4,7 @@ export type {
   LogEntry,
   LogCallContext,
   LoggerOptions,
+  Transport,
 } from "./types";
 export { LOG_LEVEL_ORDER, isLevelEnabled } from "./types";
 
@@ -14,10 +15,6 @@ export { buildContextPath } from "./context";
 export { objectifyError } from "./formatters/objectifyError";
 export { formatEntry } from "./formatters/formatEntry";
 export { levelChalkStyles } from "./formatters/levelColors";
-
-// ─── Transport ────────────────────────────────────────────────────────────────
-export type { Transport } from "./transports/types";
-export { ConsoleTransport } from "./transports/ConsoleTransport";
 
 // ─── Logger ───────────────────────────────────────────────────────────────────
 export { Logger } from "./Logger";
