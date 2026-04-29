@@ -1,6 +1,6 @@
 {
   "name": "@ocubist/diagnostics-alchemy",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "A unified diagnostics package combining a typed error framework with a structured hierarchical logger.",
   "exports": {
