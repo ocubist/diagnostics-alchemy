@@ -1,21 +1,25 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Logger } from "../../src/logger/Logger";
-import type { LogEntry, LoggerOptions } from "../../src/logger/types";
-import type { Transport } from "../../src/logger/transports/types";
+import type { LogEntry, LoggerOptions, Transport } from "../../src/logger/types";
 
-// Minimal in-memory transport for testing
-const makeTransport = (): Transport & { entries: LogEntry[] } => {
+// ─── Test helpers ─────────────────────────────────────────────────────────────
+
+/** Creates an in-memory transport and the entries array it collects into. */
+const makeTransport = (): { fn: Transport; entries: LogEntry[] } => {
   const entries: LogEntry[] = [];
-  return { entries, write(entry) { entries.push(entry); }, flushSync() {}, destroy() {} };
+  return { entries, fn: (entry) => { entries.push(entry); } };
 };
 
+/** Convenience: Logger backed by a single in-memory transport. */
 const makeLogger = (
   options: LoggerOptions = {},
-  transport = makeTransport()
+  t = makeTransport()
 ): { logger: Logger; transport: ReturnType<typeof makeTransport> } => ({
-  logger: new Logger(options, transport),
-  transport,
+  logger: new Logger(options, [t.fn]),
+  transport: t,
 });
+
+// ─── Basic logging ────────────────────────────────────────────────────────────
 
 describe("Logger — basic logging", () => {
   it("emits an info entry", () => {
@@ -47,6 +51,8 @@ describe("Logger — basic logging", () => {
     expect(transport.entries[0]!.time).toBeLessThanOrEqual(after);
   });
 });
+
+// ─── where / why context ──────────────────────────────────────────────────────
 
 describe("Logger — where / why context", () => {
   it("attaches where from logger options", () => {
@@ -80,52 +86,56 @@ describe("Logger — where / why context", () => {
   });
 });
 
+// ─── specialize() ─────────────────────────────────────────────────────────────
+
 describe("Logger — specialize()", () => {
   it("inherits parent where and appends child where", () => {
-    const transport = makeTransport();
-    const parent = new Logger({ where: "app" }, transport);
+    const t = makeTransport();
+    const parent = new Logger({ where: "app" }, [t.fn]);
     const child = parent.specialize({ where: "auth" });
     child.info("msg");
-    expect(transport.entries[0]!.where).toBe("app.auth");
+    expect(t.entries[0]!.where).toBe("app.auth");
   });
 
   it("further specialize chains correctly", () => {
-    const transport = makeTransport();
-    const root = new Logger({ where: "api" }, transport);
+    const t = makeTransport();
+    const root = new Logger({ where: "api" }, [t.fn]);
     const mid = root.specialize({ where: "users" });
     const leaf = mid.specialize({ where: "list" });
     leaf.info("msg");
-    expect(transport.entries[0]!.where).toBe("api.users.list");
+    expect(t.entries[0]!.where).toBe("api.users.list");
   });
 
-  it("parent and child share the same transport instance", () => {
-    const transport = makeTransport();
-    const parent = new Logger({}, transport);
+  it("parent and child share the same transport", () => {
+    const t = makeTransport();
+    const parent = new Logger({}, [t.fn]);
     const child = parent.specialize({ where: "child" });
     parent.info("from parent");
     child.info("from child");
-    expect(transport.entries).toHaveLength(2);
+    expect(t.entries).toHaveLength(2);
   });
 
-  it("child inherits parent callbacks and can add more", () => {
-    const parentCb = vi.fn();
-    const childCb = vi.fn();
-    const transport = makeTransport();
-    const parent = new Logger({ callbackFunctions: [parentCb] }, transport);
-    const child = parent.specialize({ callbackFunctions: [childCb] });
+  it("child inherits parent transports and can add more", () => {
+    const parentTransport = vi.fn();
+    const childTransport = vi.fn();
+    const t = makeTransport();
+    const parent = new Logger({}, [t.fn, parentTransport]);
+    const child = parent.specialize({ transports: [childTransport] });
     child.info("msg");
-    expect(parentCb).toHaveBeenCalledTimes(1);
-    expect(childCb).toHaveBeenCalledTimes(1);
+    expect(parentTransport).toHaveBeenCalledTimes(1);
+    expect(childTransport).toHaveBeenCalledTimes(1);
   });
 
   it("child overrides minLevel", () => {
-    const transport = makeTransport();
-    const parent = new Logger({ minLevel: "warn" }, transport);
+    const t = makeTransport();
+    const parent = new Logger({ minLevel: "warn" }, [t.fn]);
     const child = parent.specialize({ minLevel: "debug" });
     child.debug("should appear");
-    expect(transport.entries).toHaveLength(1);
+    expect(t.entries).toHaveLength(1);
   });
 });
+
+// ─── minLevel filtering ───────────────────────────────────────────────────────
 
 describe("Logger — minLevel filtering", () => {
   it("blocks levels below minLevel", () => {
@@ -146,36 +156,37 @@ describe("Logger — minLevel filtering", () => {
   });
 });
 
-describe("Logger — callbacks", () => {
-  it("calls every registered callback with the log entry", () => {
-    const cb1 = vi.fn();
-    const cb2 = vi.fn();
-    const { logger } = makeLogger({ callbackFunctions: [cb1, cb2] });
-    logger.warn("event");
-    expect(cb1).toHaveBeenCalledTimes(1);
-    expect(cb2).toHaveBeenCalledTimes(1);
-    const entry = cb1.mock.calls[0]![0] as LogEntry;
+// ─── transports ───────────────────────────────────────────────────────────────
+
+describe("Logger — transports", () => {
+  it("calls every registered transport with the log entry", () => {
+    const t1 = vi.fn();
+    const t2 = vi.fn();
+    const { logger } = makeLogger({}, { fn: () => {}, entries: [] });
+    // Build a fresh logger with two spy transports
+    const logger2 = new Logger({}, [t1, t2]);
+    logger2.warn("event");
+    expect(t1).toHaveBeenCalledTimes(1);
+    expect(t2).toHaveBeenCalledTimes(1);
+    const entry = t1.mock.calls[0]![0] as LogEntry;
     expect(entry.level).toBe("warn");
     expect(entry.message).toBe("event");
   });
 
-  it("callback receives full entry including where/why/payload", () => {
-    const cb = vi.fn();
-    const { logger } = makeLogger({
-      where: "app",
-      callbackFunctions: [cb],
-    });
+  it("transport receives full entry including where/why/payload", () => {
+    const t = vi.fn();
+    const logger = new Logger({ where: "app" }, [t]);
     logger.error("fail", { where: "handler", payload: { code: 500 } });
-    const entry = cb.mock.calls[0]![0] as LogEntry;
+    const entry = t.mock.calls[0]![0] as LogEntry;
     expect(entry.where).toBe("app.handler");
     expect(entry.payload).toEqual({ code: 500 });
   });
 
-  it("does not call callbacks for suppressed (filtered) entries", () => {
-    const cb = vi.fn();
-    const { logger } = makeLogger({ minLevel: "error", callbackFunctions: [cb] });
+  it("does not call transports for suppressed (filtered) entries", () => {
+    const t = vi.fn();
+    const logger = new Logger({ minLevel: "error" }, [t]);
     logger.debug("suppressed");
     logger.info("suppressed");
-    expect(cb).not.toHaveBeenCalled();
+    expect(t).not.toHaveBeenCalled();
   });
 });

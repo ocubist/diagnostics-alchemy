@@ -1,36 +1,33 @@
-import type { LogCallContext, LogEntry, LogLevel, LoggerOptions } from "./types";
+import type { LogCallContext, LogEntry, LogLevel, LoggerOptions, Transport } from "./types";
 import { isLevelEnabled } from "./types";
 import { buildContextPath } from "./context";
-import type { Transport } from "./transports/types";
 
 /** Resolved, non-optional internal config after applying defaults. */
 interface ResolvedConfig {
   where: string | undefined;
   why: string | undefined;
   minLevel: LogLevel;
-  callbacks: ((entry: LogEntry) => void)[];
+  transports: Transport[];
 }
 
 /**
  * The hierarchical logger.
- * Create with `useLogger(options)` — never instantiate directly.
+ * Create with `useLogger(options)` — never instantiate directly in app code.
  *
  * Each call to `specialize(options)` returns a *new* Logger that appends
- * context segments to the parent's `where` / `why` paths. All specializations
- * share the same underlying transport.
+ * context segments to the parent's `where` / `why` paths and stacks any
+ * additional transports on top of the parent's transport list.
  */
 export class Logger {
   private readonly config: ResolvedConfig;
-  private readonly transport: Transport;
 
   /** @internal — use `useLogger()` or `Logger.specialize()` instead. */
-  constructor(options: LoggerOptions, transport: Transport) {
-    this.transport = transport;
+  constructor(options: LoggerOptions, transports: Transport[]) {
     this.config = {
       where: options.where?.trim() || undefined,
       why: options.why?.trim() || undefined,
       minLevel: options.minLevel ?? "debug",
-      callbacks: options.callbackFunctions ?? [],
+      transports,
     };
   }
 
@@ -41,6 +38,7 @@ export class Logger {
    * `where` and `why` paths.
    *
    * All other options are inherited unless explicitly overridden.
+   * The `console` option is ignored here — it only has effect in `useLogger()`.
    *
    * @example
    * const authLogger = appLogger.specialize({ where: "auth", why: "user-session" });
@@ -52,12 +50,8 @@ export class Logger {
         where: buildContextPath(this.config.where, options.where),
         why: buildContextPath(this.config.why, options.why),
         minLevel: options.minLevel ?? this.config.minLevel,
-        callbackFunctions: [
-          ...this.config.callbacks,
-          ...(options.callbackFunctions ?? []),
-        ],
       },
-      this.transport
+      [...this.config.transports, ...(options.transports ?? [])]
     );
   }
 
@@ -83,15 +77,8 @@ export class Logger {
       payload: context?.payload,
     };
 
-    this.transport.write(entry);
-
-    for (const cb of this.config.callbacks) {
-      cb(entry);
+    for (const transport of this.config.transports) {
+      transport(entry);
     }
-  }
-
-  /** Flush pending writes synchronously (useful in tests or shutdown hooks). */
-  flushSync(): void {
-    this.transport.flushSync();
   }
 }
