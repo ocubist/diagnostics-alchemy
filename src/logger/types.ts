@@ -33,24 +33,6 @@ export interface LogCallContext {
 }
 
 /**
- * Controls which NODE_ENV triggers logging.
- *
- * - `"development"` — only logs when NODE_ENV is "development" (or unset)
- * - `"production"` — only logs when NODE_ENV is "production"
- * - `"all"` — always logs (default)
- */
-export type RuntimeRestriction = "development" | "production" | "all";
-
-/**
- * Controls log output destinations.
- *
- * - `"stdOut"` — stdout (formatted with ANSI/console colors)
- * - `"file"` — structured JSON written to filePath via SonicBoom
- * - `"all"` — both stdout and file
- */
-export type OutputRestriction = "stdOut" | "file" | "all";
-
-/**
  * Options accepted by `useLogger` (and `Logger.specialize`).
  */
 export interface LoggerOptions {
@@ -69,18 +51,16 @@ export interface LoggerOptions {
   /** Minimum log level to emit. Defaults to "debug". */
   minLevel?: LogLevel;
 
-  /** Which NODE_ENV this logger is active in. Defaults to "all". */
-  runtimeEnvironment?: RuntimeRestriction;
-
-  /** Where to write output. Defaults to "stdOut". */
-  logOutput?: OutputRestriction;
-
-  /** File path for JSON output (required when logOutput is "file" or "all"). */
-  filePath?: string;
-
   /**
    * Array of callback functions called with every emitted LogEntry.
    * Useful for remote sinks, metrics, or custom alerting.
+   * Use `@ocubist/da-file-transport` for file output.
    */
   callbackFunctions?: ((entry: LogEntry) => void)[];
 }
+
+/**
+ * Returns `true` when `level` is at or above `minLevel`.
+ */
+export const isLevelEnabled = (level: LogLevel, minLevel: LogLevel): boolean =>
+  LOG_LEVEL_ORDER[level] >= LOG_LEVEL_ORDER[minLevel];

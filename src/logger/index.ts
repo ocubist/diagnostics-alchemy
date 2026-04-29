@@ -4,32 +4,21 @@ export type {
   LogEntry,
   LogCallContext,
   LoggerOptions,
-  RuntimeRestriction,
-  OutputRestriction,
 } from "./types";
-export { LOG_LEVEL_ORDER } from "./types";
-
-// ─── Restrictions helpers ─────────────────────────────────────────────────────
-export {
-  checkRuntimeRestriction,
-  isLevelEnabled,
-} from "./restrictions";
+export { LOG_LEVEL_ORDER, isLevelEnabled } from "./types";
 
 // ─── Context helpers ──────────────────────────────────────────────────────────
 export { buildContextPath } from "./context";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 export { objectifyError } from "./formatters/objectifyError";
-export { formatNodeEntry } from "./formatters/formatNodeEntry";
-export { levelChalkStyles, levelCssStyles } from "./formatters/levelColors";
+export { formatEntry } from "./formatters/formatEntry";
+export { levelChalkStyles } from "./formatters/levelColors";
 
-// ─── Transports ───────────────────────────────────────────────────────────────
+// ─── Transport ────────────────────────────────────────────────────────────────
 export type { Transport } from "./transports/types";
-export { NodeTransport } from "./transports/NodeTransport";
-export { BrowserTransport } from "./transports/BrowserTransport";
+export { ConsoleTransport } from "./transports/ConsoleTransport";
 
 // ─── Logger ───────────────────────────────────────────────────────────────────
 export { Logger } from "./Logger";
-
-// ─── Entry point ─────────────────────────────────────────────────────────────
 export { useLogger } from "./useLogger";
