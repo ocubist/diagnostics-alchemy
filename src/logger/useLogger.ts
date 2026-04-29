@@ -1,14 +1,13 @@
 import { Logger } from "./Logger";
 import type { LoggerOptions } from "./types";
 import { NodeTransport } from "./transports/NodeTransport";
-import { BrowserTransport } from "./transports/BrowserTransport";
-import { isServerEnvironment } from "./restrictions";
 
 /**
- * Creates a root `Logger` with the given options.
+ * Creates a root `Logger` backed by the Node.js transport (stdout + optional file).
  *
- * The transport (stdout + optional file stream) is created once here and
- * shared with all loggers derived from `specialize()`.
+ * This is the server-side entry point. In browser contexts, the package's
+ * conditional export automatically resolves to `useLogger.browser.ts` instead,
+ * which uses `BrowserTransport` — no manual switching needed.
  *
  * @example
  * const log = useLogger({ where: "app", minLevel: "info" });
@@ -18,9 +17,6 @@ import { isServerEnvironment } from "./restrictions";
  * authLog.warn("Token nearing expiry", { payload: { userId: "u123" } });
  */
 export const useLogger = (options: LoggerOptions = {}): Logger => {
-  const transport = isServerEnvironment()
-    ? new NodeTransport(options.filePath, options.logOutput ?? "stdOut")
-    : new BrowserTransport();
-
+  const transport = new NodeTransport(options.filePath, options.logOutput ?? "stdOut");
   return new Logger(options, transport);
 };

@@ -12,6 +12,7 @@ const makeTransport = (): Transport & { entries: LogEntry[] } => {
       entries.push(entry);
     },
     flushSync() {},
+    destroy() {},
   };
 };
 
@@ -149,20 +150,6 @@ describe("Logger — minLevel filtering", () => {
     logger.debug("d");
     logger.info("i");
     expect(transport.entries).toHaveLength(2);
-  });
-});
-
-describe("Logger — environment restrictions", () => {
-  it('"server" environment passes in Node (no window)', () => {
-    const { logger, transport } = makeLogger({ environment: "server" });
-    logger.info("msg");
-    expect(transport.entries).toHaveLength(1);
-  });
-
-  it('"device" environment blocks in Node (no window)', () => {
-    const { logger, transport } = makeLogger({ environment: "device" });
-    logger.info("msg");
-    expect(transport.entries).toHaveLength(0);
   });
 });
 

@@ -1,27 +1,26 @@
 // @vitest-environment happy-dom
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { useLogger } from "../../../src/logger/useLogger";
+import { useLogger } from "../../../src/logger/useLogger.browser";
 import type { LogEntry } from "../../../src/logger/types";
 
 /**
- * In happy-dom, `globalThis.window` is defined, so `useLogger` picks
- * BrowserTransport automatically. These tests verify that the full
- * logger pipeline works end-to-end in a browser context.
+ * Tests the browser entry point of useLogger.
+ * Runs under happy-dom so console spies work as expected.
  */
 describe("useLogger — browser (happy-dom)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("routes log entries through console (not stdout) in a browser environment", () => {
+  it("routes log entries through console (not stdout)", () => {
     const spy = vi.spyOn(console, "info").mockImplementation(() => {});
     const log = useLogger();
     log.info("hello browser");
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("does not write to process.stdout in a browser environment", () => {
+  it("does not write to process.stdout", () => {
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const consoleSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const log = useLogger();
@@ -58,7 +57,7 @@ describe("useLogger — browser (happy-dom)", () => {
     expect(firstArg).toContain("(session)");
   });
 
-  it("callbacks still fire in browser environment", () => {
+  it("callbacks still fire", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const cb = vi.fn();
     const log = useLogger({ callbackFunctions: [cb] });
@@ -69,21 +68,7 @@ describe("useLogger — browser (happy-dom)", () => {
     expect(entry.message).toBe("cb test");
   });
 
-  it('environment: "server" blocks logging in browser', () => {
-    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
-    const log = useLogger({ environment: "server" });
-    log.info("should be blocked");
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('environment: "device" passes in browser', () => {
-    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
-    const log = useLogger({ environment: "device" });
-    log.info("should pass");
-    expect(spy).toHaveBeenCalledTimes(1);
-  });
-
-  it("specialize() context stacking works in browser", () => {
+  it("specialize() context stacking works", () => {
     const spy = vi.spyOn(console, "info").mockImplementation(() => {});
     const cb = vi.fn();
     const root = useLogger({ where: "app", callbackFunctions: [cb] });
@@ -94,14 +79,13 @@ describe("useLogger — browser (happy-dom)", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("minLevel filtering works in browser", () => {
+  it("minLevel filtering works", () => {
     const spy = vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "debug").mockImplementation(() => {});
     const log = useLogger({ minLevel: "warn" });
     log.debug("blocked");
     log.info("blocked");
     log.warn("ok");
-    // only warn reached console — but warn spy not set here, check info is silent
     expect(spy).not.toHaveBeenCalled();
   });
 });
