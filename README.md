@@ -6,7 +6,7 @@ A unified TypeScript diagnostics library — typed error framework + structured 
 npm install @ocubist/diagnostics-alchemy
 ```
 
-Full ESM. Node 20+. Zero config. Works in browser environments too.
+Full ESM. Node 20+. Works in browser environments too.
 
 ---
 
@@ -122,14 +122,17 @@ assert(value, schema);           // Zod schema assertion
 import { useLogger } from "@ocubist/diagnostics-alchemy";
 
 const log = useLogger({
-  where: "api-server",  // root context segment
-  minLevel: "info",     // filter out debug entries
+  where: "api-server",
+  console: {
+    timezone: "Europe/Berlin", // any IANA timezone — default "UTC"
+    minLevel: "debug",         // default "debug"
+  },
 });
 
 log.info("Server started", { payload: { port: 3000 } });
 log.warn("Slow query", { where: "db", payload: { ms: 1230 } });
-// stdout: 2024-06-01T12:00:00.000Z WARN  [api-server.db] Slow query
-//           {"ms":1230}
+// 2026-04-30 01:58:08 WARN  [api-server.db] Slow query
+//   {"ms":1230}
 ```
 
 ### Hierarchical context — `specialize()`
@@ -142,7 +145,6 @@ loginLog.warn("Token expired");
 // where: "api-server.auth.login"
 // why:   "user-session"
 
-// Add context at the call site too
 loginLog.error("Credentials rejected", { where: "validator", payload: { userId } });
 // where: "api-server.auth.login.validator"
 ```
@@ -153,38 +155,52 @@ loginLog.error("Credentials rejected", { where: "validator", payload: { userId }
 |---|---|---|---|
 | `where` | `string` | — | Location segment |
 | `why` | `string` | — | Intent segment |
-| `minLevel` | `"debug"\|"info"\|"warn"\|"error"\|"fatal"` | `"debug"` | Drop entries below this level |
-| `console` | `boolean` | `true` | Include the built-in console transport. Set `false` for file-only setups. Only affects `useLogger()`. |
-| `transports` | `Transport[]` | `[]` | Additional transport functions called with every emitted entry |
+| `console` | `ConsoleTransportConfig` | see below | Built-in console transport config. Only affects `useLogger()`. |
+| `transports` | `Transport[]` | `[]` | Additional transports, each with its own `minLevel` |
 
-### Add transports
+#### `ConsoleTransportConfig`
 
-A `Transport` is just a plain function `(entry: LogEntry) => void` — no class to implement.
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enableTransport` | `boolean` | `true` | Set `false` to suppress all console output |
+| `timezone` | `string` | `"UTC"` | IANA timezone name for timestamp formatting |
+| `minLevel` | `LogLevel` | `"debug"` | Minimum level to print to console |
+
+### Transports
+
+A `Transport` is an interface — no class needed:
+
+```typescript
+interface Transport {
+  write(entry: LogEntry): void;
+  minLevel?: LogLevel; // default "debug"
+}
+```
+
+Each transport manages its own `minLevel` independently. The Logger checks it before calling `write()`.
 
 ```typescript
 const log = useLogger({
+  console: { minLevel: "debug" },
   transports: [
-    // Remote HTTP sink
-    (entry) => fetch("https://logs.example.com/ingest", {
-      method: "POST",
-      body: JSON.stringify(entry),
-      headers: { "Content-Type": "application/json" },
-    }).catch(() => {}),
-
-    // Metrics
-    (entry) => {
-      if (entry.level === "error" || entry.level === "fatal")
-        metrics.increment("errors", { level: entry.level });
+    // Remote HTTP sink — only warnings and above
+    {
+      write: (entry) => fetch("https://logs.example.com/ingest", {
+        method: "POST",
+        body: JSON.stringify(entry),
+        headers: { "Content-Type": "application/json" },
+      }).catch(() => {}),
+      minLevel: "warn",
     },
   ],
 });
 ```
 
-Transports added in `specialize()` stack on top of the parent's — all fire.
+Transports added in `specialize()` stack on top of the parent's — all fire for their respective levels.
 
 ### File output
 
-File transport is available as a separate package so it never pollutes browser bundles:
+File transport lives in a separate package so sonic-boom never enters browser bundles:
 
 ```
 npm install @ocubist/da-file-transport
@@ -195,10 +211,23 @@ import { useLogger } from "@ocubist/diagnostics-alchemy";
 import { createFileTransport } from "@ocubist/da-file-transport";
 
 const log = useLogger({
-  where: "api",
-  transports: [createFileTransport({ path: "logs/app.log" })],
+  console: { timezone: "Europe/Berlin" },
+  transports: [
+    createFileTransport({ path: "logs/app.log", minLevel: "info" }),
+  ],
 });
 ```
+
+### Plain output — `logger.plain`
+
+For raw string output with no metadata, colouring, or filtering:
+
+```typescript
+logger.plain.info("Starting migration...");
+logger.plain.warn("Slow query detected\nSELECT * FROM users WHERE ...");
+```
+
+`logger.plain.{debug,info,warn,error,fatal}(string)` routes directly to the matching `console.*` method. No timestamp, no level badge, no context, no transport filtering — always fires.
 
 ### Serialize errors for log payloads
 
@@ -211,23 +240,6 @@ log.error("Request failed", {
 // TransmutedError → all typed fields (severity, errorCode, reason, payload, origin chain, ...)
 // plain Error    → { type, message, stack }
 // anything else → { value: ... }
-```
-
-### Error framework integration
-
-```typescript
-import { useLogger, useErrorAlchemy, objectifyError } from "@ocubist/diagnostics-alchemy";
-
-const log = useLogger({ where: "api" });
-const { craftMysticError, craftErrorLogger } = useErrorAlchemy("api", "handler");
-
-const DbError = craftMysticError({ name: "DbError", errorCode: "DB_CONNECTION_FAILED", severity: "fatal" });
-
-const logError = craftErrorLogger({
-  default:     (err) => log.error("Error",  { payload: { err: objectifyError(err) } }),
-  fatal:       (err) => log.fatal("FATAL",  { payload: { err: objectifyError(err) } }),
-  unimportant: (err) => log.debug("Minor",  { payload: { err: objectifyError(err) } }),
-});
 ```
 
 ---
