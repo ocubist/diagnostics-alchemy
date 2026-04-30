@@ -5,6 +5,8 @@ export type {
   LogCallContext,
   LoggerOptions,
   Transport,
+  ConsoleTransportConfig,
+  PlainLogger,
 } from "./types";
 export { LOG_LEVEL_ORDER, isLevelEnabled } from "./types";
 
