@@ -11,7 +11,7 @@ export const LOG_LEVEL_ORDER: Readonly<Record<LogLevel, number>> = {
 };
 
 /**
- * A structured log entry — the universal record passed to transports and callbacks.
+ * A structured log entry — the universal record passed to transports.
  */
 export interface LogEntry {
   level: LogLevel;
@@ -33,13 +33,61 @@ export interface LogCallContext {
 }
 
 /**
- * A transport function — receives every emitted `LogEntry`.
- * Use a plain closure; no interface to implement.
+ * A transport — receives emitted `LogEntry` objects and writes them somewhere.
+ *
+ * `minLevel` filters which entries reach `write()`. Entries below the threshold
+ * are silently skipped for this transport only. Defaults to `"debug"`.
  *
  * @example
- * const myTransport: Transport = (entry) => sendToServer(entry);
+ * const myTransport: Transport = {
+ *   write: (entry) => sendToServer(entry),
+ *   minLevel: "warn",
+ * };
  */
-export type Transport = (entry: LogEntry) => void;
+export interface Transport {
+  write(entry: LogEntry): void;
+  minLevel?: LogLevel;
+}
+
+/**
+ * Configuration for the built-in console transport.
+ * All fields are optional — unset fields fall back to their defaults.
+ */
+export interface ConsoleTransportConfig {
+  /**
+   * Include the built-in console transport. Defaults to `true`.
+   * Set to `false` for file-only setups.
+   */
+  enableTransport?: boolean;
+
+  /**
+   * IANA timezone name used when formatting timestamps.
+   * Defaults to `"UTC"`.
+   *
+   * @example "Europe/Berlin", "America/New_York"
+   */
+  timezone?: string;
+
+  /**
+   * Minimum log level for console output. Defaults to `"debug"`.
+   * Entries below this level are not printed to the console.
+   */
+  minLevel?: LogLevel;
+}
+
+/**
+ * The plain sub-logger exposed as `logger.plain`.
+ * Each method prints the raw string directly to the matching `console.*` method.
+ * No timestamp, level badge, context, colouring, or transport filtering —
+ * always fires regardless of any minLevel setting.
+ */
+export interface PlainLogger {
+  debug(message: string): void;
+  info(message: string): void;
+  warn(message: string): void;
+  error(message: string): void;
+  fatal(message: string): void;
+}
 
 /**
  * Options accepted by `useLogger` (and `Logger.specialize`).
@@ -57,19 +105,15 @@ export interface LoggerOptions {
    */
   why?: string;
 
-  /** Minimum log level to emit. Defaults to "debug". */
-  minLevel?: LogLevel;
-
   /**
-   * Whether to include the built-in console transport. Defaults to `true`.
-   * Set to `false` to suppress all console output (e.g. file-only setups).
+   * Built-in console transport configuration.
    * Only has effect when passed to `useLogger()` — ignored in `specialize()`.
    */
-  console?: boolean;
+  console?: ConsoleTransportConfig;
 
   /**
-   * Additional transports — called with every emitted `LogEntry`.
-   * Each transport is a plain function: `(entry: LogEntry) => void`.
+   * Additional transports — each receives every `LogEntry` that passes its
+   * own `minLevel` threshold.
    *
    * @example
    * import { createFileTransport } from "@ocubist/da-file-transport";

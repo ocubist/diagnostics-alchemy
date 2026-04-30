@@ -1,4 +1,4 @@
-import type { LogCallContext, LogEntry, LogLevel, LoggerOptions, Transport } from "./types";
+import type { LogCallContext, LogEntry, LogLevel, LoggerOptions, PlainLogger, Transport } from "./types";
 import { isLevelEnabled } from "./types";
 import { buildContextPath } from "./context";
 
@@ -6,7 +6,6 @@ import { buildContextPath } from "./context";
 interface ResolvedConfig {
   where: string | undefined;
   why: string | undefined;
-  minLevel: LogLevel;
   transports: Transport[];
 }
 
@@ -26,7 +25,6 @@ export class Logger {
     this.config = {
       where: options.where?.trim() || undefined,
       why: options.why?.trim() || undefined,
-      minLevel: options.minLevel ?? "debug",
       transports,
     };
   }
@@ -49,10 +47,30 @@ export class Logger {
       {
         where: buildContextPath(this.config.where, options.where),
         why: buildContextPath(this.config.why, options.why),
-        minLevel: options.minLevel ?? this.config.minLevel,
       },
       [...this.config.transports, ...(options.transports ?? [])]
     );
+  }
+
+  // ─── Plain sub-logger ─────────────────────────────────────────────────────
+
+  /**
+   * Plain text output — prints the raw string directly to the matching
+   * `console.*` method. No timestamp, level badge, context, colouring, or
+   * transport filtering. Always fires regardless of any minLevel setting.
+   *
+   * @example
+   * logger.plain.info("Starting migration...");
+   * logger.plain.warn("Slow query detected\nQuery: SELECT * FROM users");
+   */
+  get plain(): PlainLogger {
+    return {
+      debug: (msg) => console.debug(msg),
+      info:  (msg) => console.info(msg),
+      warn:  (msg) => console.warn(msg),
+      error: (msg) => console.error(msg),
+      fatal: (msg) => console.error(msg),
+    };
   }
 
   // ─── Public log methods ────────────────────────────────────────────────────
@@ -66,8 +84,6 @@ export class Logger {
   // ─── Internals ─────────────────────────────────────────────────────────────
 
   private logBase(level: LogLevel, message: string, context?: LogCallContext): void {
-    if (!isLevelEnabled(level, this.config.minLevel)) return;
-
     const entry: LogEntry = {
       level,
       time: Date.now(),
@@ -78,7 +94,9 @@ export class Logger {
     };
 
     for (const transport of this.config.transports) {
-      transport(entry);
+      if (isLevelEnabled(level, transport.minLevel ?? "debug")) {
+        transport.write(entry);
+      }
     }
   }
 }
